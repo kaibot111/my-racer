@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Retro Racer 3000 - Local Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: white; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        
+        /* HUD */
+        #hud {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+        }
+        .stat-box { background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.2); }
+        
+        /* Menus */
+        .menu-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.3s;
+            z-index: 10;
+        }
+        .hidden { opacity: 0; pointer-events: none; }
+        
+        h1 { font-size: 60px; margin: 0 0 20px 0; color: #ffeb3b; text-transform: uppercase; font-style: italic; letter-spacing: -2px; text-shadow: 4px 4px 0 #d32f2f; transform: skew(-10deg); }
+        h2 { margin-top: 0; color: #03a9f4; }
+        
+        button {
+            background: linear-gradient(45deg, #ff5722, #f44336);
+            border: none; padding: 15px 40px; color: white; font-size: 24px; font-weight: bold;
+            text-transform: uppercase; cursor: pointer; border-radius: 50px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5); margin: 10px;
+            transform: skew(-10deg); transition: transform 0.1s, box-shadow 0.1s;
+        }
+        button:hover { transform: skew(-10deg) scale(1.05); box-shadow: 0 10px 30px rgba(244, 67, 54, 0.6); }
+        button:active { transform: skew(-10deg) scale(0.95); }
+        
+        /* Leaderboard */
+        #leaderboard {
+            width: 80%; max-width: 600px;
+            background: rgba(20, 20, 20, 0.9);
+            border-radius: 10px;
+            border: 2px solid #444;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .lb-row { display: flex; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #333; }
+        .lb-row:nth-child(even) { background: rgba(255,255,255,0.05); }
+        .lb-rank { color: #ffeb3b; width: 30px; }
+        .lb-name { flex-grow: 1; text-align: left; padding-left: 10px; font-weight: bold; }
+        .lb-time { color: #00e676; font-family: monospace; }
+        
+        #controls-hint {
+            margin-top: 20px; color: #aaa; font-size: 14px;
+        }
+
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none;
+            position: absolute; bottom: 20px; width: 100%; height: 150px;
+            pointer-events: none;
+        }
+        .control-btn {
+            position: absolute; width: 80px; height: 80px;
+            background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 50%; pointer-events: auto; touch-action: manipulation;
+        }
+        .control-btn:active { background: rgba(255,255,255,0.4); }
+        #btn-left { left: 20px; bottom: 20px; }
+        #btn-right { left: 120px; bottom: 20px; }
+        #btn-gas { right: 20px; bottom: 20px; background: rgba(0, 230, 118, 0.3); }
+        #btn-brake { right: 120px; bottom: 20px; background: rgba(255, 23, 68, 0.3); width: 60px; height: 60px; bottom: 30px;}
+
+        @media (max-width: 768px) {
+            #mobile-controls { display: block; }
+            h1 { font-size: 40px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="ui-layer">
+    <div id="hud">
+        <div class="stat-box">TIME: <span id="time-display">0.00</span>s</div>
+        <div class="stat-box">LAP: <span id="lap-display">1/3</span></div>
+        <div class="stat-box">SPEED: <span id="speed-display">0</span> km/h</div>
+    </div>
+    
+    <div id="mobile-controls">
+        <div id="btn-left" class="control-btn" data-key="ArrowLeft"></div>
+        <div id="btn-right" class="control-btn" data-key="ArrowRight"></div>
+        <div id="btn-brake" class="control-btn" data-key="ArrowDown"></div>
+        <div id="btn-gas" class="control-btn" data-key="ArrowUp"></div>
+    </div>
+</div>
+
+<!-- Main Menu -->
+<div id="main-menu" class="menu-overlay">
+    <h1>Retro Racer 3000</h1>
+    <button id="start-btn">Start Race</button>
+    <div id="controls-hint">WASD / Arrows to Drive • R to Reset</div>
+</div>
+
+<!-- Game Over / Leaderboard -->
+<div id="game-over" class="menu-overlay hidden">
+    <h1>FINISHED!</h1>
+    <h2 id="final-time">Time: 0.00s</h2>
+    <button id="restart-btn">Race Again</button>
+    
+    <div style="margin-top:15px; font-size:14px; color:#aaa;">Local Leaderboard</div>
+    <div id="leaderboard">
+        <!-- Scores go here -->
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+    // --- Local Storage Leaderboard Logic ---
+    const LOCAL_KEY = 'retro_racer_scores';
+
+    function getScores() {
+        const scores = localStorage.getItem(LOCAL_KEY);
+        return scores ? JSON.parse(scores) : [];
+    }
+
+    function saveScore(time) {
+        const scores = getScores();
+        const name = "Racer-" + Math.floor(Math.random() * 1000);
+        scores.push({ name: name, time: time, date: new Date().toISOString() });
+        scores.sort((a, b) => a.time - b.time);
+        // Keep top 10
+        if (scores.length > 10) scores.pop();
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(scores));
+        renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+        const scores = getScores();
+        const lbDiv = document.getElementById('leaderboard');
+        lbDiv.innerHTML = '';
+        if (scores.length === 0) {
+            lbDiv.innerHTML = '<div style="padding:20px; text-align:center;">No times recorded yet.</div>';
+            return;
+        }
+        scores.forEach((s, index) => {
+            const row = document.createElement('div');
+            row.className = 'lb-row';
+            row.innerHTML = `
+                <div class="lb-rank">#${index + 1}</div>
+                <div class="lb-name">${s.name}</div>
+                <div class="lb-time">${Number(s.time).toFixed(2)}s</div>
+            `;
+            lbDiv.appendChild(row);
+        });
+    }
+
+    // --- 3D Game Engine (Three.js) ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB);
+    scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    // Lights
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(50, 100, 50);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    scene.add(dirLight);
+
+    // Game Variables
+    let gameState = 'MENU'; 
+    let startTime = 0;
+    let elapsedTime = 0;
+    let currentLap = 1;
+    const totalLaps = 3;
+    let nextCheckpoint = 0;
+    
+    // Physics
+    const carProps = {
+        speed: 0,
+        maxSpeed: 1.2,
+        acceleration: 0.02,
+        friction: 0.98,
+        turnSpeed: 0.05,
+        angle: 0,
+        x: 0,
+        z: 0
+    };
+
+    const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, s: false, a: false, d: false, r: false };
+
+    // --- Assets ---
+
+    // 1. Car
+    function createCar() {
+        const carGroup = new THREE.Group();
+        
+        // Body
+        const body = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 0.5, 2.2),
+            new THREE.MeshStandardMaterial({ color: 0xe53935, roughness: 0.2 })
+        );
+        body.position.y = 0.5;
+        body.castShadow = true;
+        carGroup.add(body);
+        
+        // Cabin
+        const cabin = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 0.4, 1),
+            new THREE.MeshStandardMaterial({ color: 0x222222 })
+        );
+        cabin.position.set(0, 0.9, -0.2);
+        carGroup.add(cabin);
+
+        // Wheels
+        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 24);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const positions = [
+            { x: 0.6, z: 0.8 }, { x: -0.6, z: 0.8 },
+            { x: 0.6, z: -0.8 }, { x: -0.6, z: -0.8 }
+        ];
+        positions.forEach(p => {
+            const w = new THREE.Mesh(wheelGeo, wheelMat);
+            w.rotation.z = Math.PI / 2;
+            w.position.set(p.x, 0.35, p.z);
+            carGroup.add(w);
+        });
+
+        return carGroup;
+    }
+    const playerCar = createCar();
+    scene.add(playerCar);
+
+    // 2. Track System
+    const trackWidth = 14;
+    // Simple Loop Track Points (x, z)
+    // 0: Start (0,0) -> 1: (0, -100) -> 2: (100, -100) -> 3: (100, 0) -> 4: (0,0)
+    const checkPoints = [
+        { x: 0, z: -100, radius: 20 }, // Turn 1
+        { x: 100, z: -100, radius: 20 }, // Turn 2
+        { x: 100, z: 0, radius: 20 },   // Turn 3
+        { x: 0, z: 0, radius: 15 }      // Finish Line
+    ];
+
+    function createTrack() {
+        // Ground
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(1000, 1000),
+            new THREE.MeshStandardMaterial({ color: 0x388E3C })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Road Material
+        const roadMat = new THREE.MeshStandardMaterial({ color: 0x424242 });
+
+        function createStraight(x, z, w, l, rotY) {
+            const road = new THREE.Mesh(new THREE.PlaneGeometry(w, l), roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.rotation.z = rotY;
+            road.position.set(x, 0.02, z);
+            road.receiveShadow = true;
+            scene.add(road);
+        }
+
+        // Straight 1 (0,0) to (0, -100)
+        createStraight(0, -50, trackWidth, 110, 0);
+        // Straight 2 (0, -100) to (100, -100)
+        createStraight(50, -100, trackWidth, 110, Math.PI / 2);
+        // Straight 3 (100, -100) to (100, 0)
+        createStraight(100, -50, trackWidth, 110, 0);
+        // Straight 4 (100, 0) to (0, 0)
+        createStraight(50, 0, trackWidth, 110, Math.PI / 2);
+
+        // Corner Markers (Visual only)
+        checkPoints.forEach((cp, i) => {
+            const marker = new THREE.Mesh(
+                new THREE.ConeGeometry(1, 4, 8),
+                new THREE.MeshBasicMaterial({ color: i === 3 ? 0xffffff : 0xffeb3b })
+            );
+            marker.position.set(cp.x + (i===1 || i===2 ? 8 : -8), 2, cp.z + (i===2 || i===3 ? 8 : -8));
+            marker.rotation.x = Math.PI;
+            scene.add(marker);
+        });
+    }
+    createTrack();
+
+    // --- Input ---
+    window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = true; if(e.key.toLowerCase() === 'r') resetCar(); });
+    window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = false; });
+    
+    // Mobile Touch
+    const btns = document.querySelectorAll('.control-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[btn.dataset.key] = true; });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[btn.dataset.key] = false; });
+    });
+
+    // --- Game Logic ---
+    function resetCar() {
+        carProps.x = 0;
+        carProps.z = 0;
+        carProps.speed = 0;
+        carProps.angle = Math.PI; // Facing forward (Standard ThreeJS is usually Z+ towards cam, but we inverted)
+        // Adjust for our coordinate system
+        // Start at 0,0 facing 0, -100
+        carProps.angle = Math.PI; 
+    }
+
+    function updatePhysics() {
+        if (gameState !== 'PLAYING') return;
+
+        // Gas/Brake
+        if (keys.ArrowUp || keys.w) carProps.speed += carProps.acceleration;
+        if (keys.ArrowDown || keys.s) carProps.speed -= carProps.acceleration;
+
+        // Friction
+        carProps.speed *= carProps.friction;
+
+        // Steering (only if moving)
+        if (Math.abs(carProps.speed) > 0.01) {
+            const dir = carProps.speed > 0 ? 1 : -1;
+            if (keys.ArrowLeft || keys.a) carProps.angle += carProps.turnSpeed * dir;
+            if (keys.ArrowRight || keys.d) carProps.angle -= carProps.turnSpeed * dir;
+        }
+
+        // Apply Velocity
+        carProps.x += Math.sin(carProps.angle) * carProps.speed;
+        carProps.z += Math.cos(carProps.angle) * carProps.speed;
+
+        // Update 3D Object
+        playerCar.position.set(carProps.x, 0, carProps.z);
+        playerCar.rotation.y = carProps.angle;
+
+        // Camera Follow
+        const camDist = 10;
+        const camHeight = 5;
+        camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
+        camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
+        camera.position.y = camHeight;
+        camera.lookAt(playerCar.position);
+
+        // Checkpoints
+        const cp = checkPoints[nextCheckpoint];
+        const dist = Math.sqrt((carProps.x - cp.x)**2 + (carProps.z - cp.z)**2);
+        
+        if (dist < cp.radius) {
+            nextCheckpoint++;
+            if (nextCheckpoint >= checkPoints.length) {
+                nextCheckpoint = 0;
+                currentLap++;
+                document.getElementById('lap-display').innerText = `${currentLap}/${totalLaps}`;
+                if (currentLap > totalLaps) {
+                    endGame();
+                }
+            }
+        }
+        
+        // Timer
+        elapsedTime = (Date.now() - startTime) / 1000;
+        document.getElementById('time-display').innerText = elapsedTime.toFixed(2);
+        document.getElementById('speed-display').innerText = Math.floor(carProps.speed * 200);
+    }
+
+    function startGame() {
+        gameState = 'PLAYING';
+        resetCar();
+        // Face -Z
+        carProps.angle = Math.PI; 
+        currentLap = 1;
+        nextCheckpoint = 0;
+        startTime = Date.now();
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('game-over').classList.add('hidden');
+    }
+
+    function endGame() {
+        gameState = 'FINISHED';
+        saveScore(elapsedTime);
+        document.getElementById('final-time').innerText = `Time: ${elapsedTime.toFixed(2)}s`;
+        document.getElementById('game-over').classList.remove('hidden');
+    }
+
+    // UI Listeners
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('restart-btn').addEventListener('click', startGame);
+
+    // Animation Loop
+    function animate() {
+        requestAnimationFrame(animate);
+        updatePhysics();
+        renderer.render(scene, camera);
+    }
+
+    // Handle Window Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Initial Setup
+    renderLeaderboard();
+    resetCar();
+    animate();
+
+</script>
+</body>
+</html>
