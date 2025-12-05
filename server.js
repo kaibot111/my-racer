@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
+
 // Allow connections from anywhere (CORS)
 const io = new Server(server, {
     cors: {
@@ -11,6 +12,13 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     }
 });
+
+// --- THIS IS THE NEW PART ---
+// This tells the server what to show when you visit the URL in your browser
+app.get('/', (req, res) => {
+    res.send('Race Control Server is online! Use this URL in your game code.');
+});
+// ----------------------------
 
 let players = {};
 
