@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Retro Racer 3000 - Local Edition</title>
+    <title>Retro Racer 3000 - Multiplayer Online</title>
+    <!-- Import Socket.io Client -->
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: white; }
         #canvas-container { width: 100vw; height: 100vh; display: block; }
@@ -40,6 +42,11 @@
         h1 { font-size: 60px; margin: 0 0 20px 0; color: #ffeb3b; text-transform: uppercase; font-style: italic; letter-spacing: -2px; text-shadow: 4px 4px 0 #d32f2f; transform: skew(-10deg); }
         h2 { margin-top: 0; color: #03a9f4; }
         
+        input {
+            padding: 15px; font-size: 18px; width: 300px; border-radius: 5px; border: none; margin: 10px;
+            text-align: center; background: #333; color: white; border: 2px solid #555;
+        }
+
         button {
             background: linear-gradient(45deg, #ff5722, #f44336);
             border: none; padding: 15px 40px; color: white; font-size: 24px; font-weight: bold;
@@ -49,22 +56,6 @@
         }
         button:hover { transform: skew(-10deg) scale(1.05); box-shadow: 0 10px 30px rgba(244, 67, 54, 0.6); }
         button:active { transform: skew(-10deg) scale(0.95); }
-        
-        /* Leaderboard */
-        #leaderboard {
-            width: 80%; max-width: 600px;
-            background: rgba(20, 20, 20, 0.9);
-            border-radius: 10px;
-            border: 2px solid #444;
-            max-height: 400px;
-            overflow-y: auto;
-            margin-top: 20px;
-        }
-        .lb-row { display: flex; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #333; }
-        .lb-row:nth-child(even) { background: rgba(255,255,255,0.05); }
-        .lb-rank { color: #ffeb3b; width: 30px; }
-        .lb-name { flex-grow: 1; text-align: left; padding-left: 10px; font-weight: bold; }
-        .lb-time { color: #00e676; font-family: monospace; }
         
         #controls-hint {
             margin-top: 20px; color: #aaa; font-size: 14px;
@@ -114,64 +105,27 @@
 
 <!-- Main Menu -->
 <div id="main-menu" class="menu-overlay">
-    <h1>Retro Racer 3000</h1>
-    <button id="start-btn">Start Race</button>
+    <h1>Retro Racer Online</h1>
+    <input type="text" id="server-url" placeholder="Paste Server URL Here" />
+    <button id="join-btn">Join Race</button>
+    <div id="status-msg" style="margin-top:10px; color:#00e676;"></div>
     <div id="controls-hint">WASD / Arrows to Drive • R to Reset</div>
 </div>
 
-<!-- Game Over / Leaderboard -->
+<!-- Game Over -->
 <div id="game-over" class="menu-overlay hidden">
     <h1>FINISHED!</h1>
     <h2 id="final-time">Time: 0.00s</h2>
     <button id="restart-btn">Race Again</button>
-    
-    <div style="margin-top:15px; font-size:14px; color:#aaa;">Local Leaderboard</div>
-    <div id="leaderboard">
-        <!-- Scores go here -->
-    </div>
 </div>
 
 <!-- Scripts -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-    // --- Local Storage Leaderboard Logic ---
-    const LOCAL_KEY = 'retro_racer_scores';
-
-    function getScores() {
-        const scores = localStorage.getItem(LOCAL_KEY);
-        return scores ? JSON.parse(scores) : [];
-    }
-
-    function saveScore(time) {
-        const scores = getScores();
-        const name = "Racer-" + Math.floor(Math.random() * 1000);
-        scores.push({ name: name, time: time, date: new Date().toISOString() });
-        scores.sort((a, b) => a.time - b.time);
-        // Keep top 10
-        if (scores.length > 10) scores.pop();
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(scores));
-        renderLeaderboard();
-    }
-
-    function renderLeaderboard() {
-        const scores = getScores();
-        const lbDiv = document.getElementById('leaderboard');
-        lbDiv.innerHTML = '';
-        if (scores.length === 0) {
-            lbDiv.innerHTML = '<div style="padding:20px; text-align:center;">No times recorded yet.</div>';
-            return;
-        }
-        scores.forEach((s, index) => {
-            const row = document.createElement('div');
-            row.className = 'lb-row';
-            row.innerHTML = `
-                <div class="lb-rank">#${index + 1}</div>
-                <div class="lb-name">${s.name}</div>
-                <div class="lb-time">${Number(s.time).toFixed(2)}s</div>
-            `;
-            lbDiv.appendChild(row);
-        });
-    }
+    // --- Multiplayer Global Vars ---
+    let socket;
+    let otherPlayers = {}; // Stores the 3D meshes of other cars
+    let myId;
 
     // --- 3D Game Engine (Three.js) ---
     const scene = new THREE.Scene();
@@ -210,7 +164,7 @@
         acceleration: 0.02,
         friction: 0.98,
         turnSpeed: 0.05,
-        angle: 0,
+        angle: Math.PI, // Start facing backwards (Z-)
         x: 0,
         z: 0
     };
@@ -219,14 +173,14 @@
 
     // --- Assets ---
 
-    // 1. Car
-    function createCar() {
+    // 1. Car Generator
+    function createCar(color = 0xe53935) {
         const carGroup = new THREE.Group();
         
         // Body
         const body = new THREE.Mesh(
             new THREE.BoxGeometry(1, 0.5, 2.2),
-            new THREE.MeshStandardMaterial({ color: 0xe53935, roughness: 0.2 })
+            new THREE.MeshStandardMaterial({ color: color, roughness: 0.2 })
         );
         body.position.y = 0.5;
         body.castShadow = true;
@@ -256,13 +210,13 @@
 
         return carGroup;
     }
-    const playerCar = createCar();
+    
+    // Create Player Car (Red)
+    const playerCar = createCar(0xe53935);
     scene.add(playerCar);
 
     // 2. Track System
     const trackWidth = 14;
-    // Simple Loop Track Points (x, z)
-    // 0: Start (0,0) -> 1: (0, -100) -> 2: (100, -100) -> 3: (100, 0) -> 4: (0,0)
     const checkPoints = [
         { x: 0, z: -100, radius: 20 }, // Turn 1
         { x: 100, z: -100, radius: 20 }, // Turn 2
@@ -292,16 +246,11 @@
             scene.add(road);
         }
 
-        // Straight 1 (0,0) to (0, -100)
         createStraight(0, -50, trackWidth, 110, 0);
-        // Straight 2 (0, -100) to (100, -100)
         createStraight(50, -100, trackWidth, 110, Math.PI / 2);
-        // Straight 3 (100, -100) to (100, 0)
         createStraight(100, -50, trackWidth, 110, 0);
-        // Straight 4 (100, 0) to (0, 0)
         createStraight(50, 0, trackWidth, 110, Math.PI / 2);
 
-        // Corner Markers (Visual only)
         checkPoints.forEach((cp, i) => {
             const marker = new THREE.Mesh(
                 new THREE.ConeGeometry(1, 4, 8),
@@ -318,50 +267,112 @@
     window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = true; if(e.key.toLowerCase() === 'r') resetCar(); });
     window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = false; });
     
-    // Mobile Touch
+    // Mobile
     const btns = document.querySelectorAll('.control-btn');
     btns.forEach(btn => {
         btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[btn.dataset.key] = true; });
         btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[btn.dataset.key] = false; });
     });
 
+    // --- Multiplayer Connection Logic ---
+    document.getElementById('join-btn').addEventListener('click', () => {
+        const url = document.getElementById('server-url').value;
+        if(!url) { alert("Please enter a URL!"); return; }
+        
+        document.getElementById('status-msg').innerText = "Connecting...";
+        
+        try {
+            socket = io(url);
+            
+            socket.on('connect', () => {
+                console.log("Connected to server!");
+                document.getElementById('status-msg').innerText = "Connected! Starting...";
+                myId = socket.id;
+                startGame();
+            });
+
+            // Receive existing players
+            socket.on('currentPlayers', (players) => {
+                Object.keys(players).forEach((id) => {
+                    if (id !== myId) {
+                        addEnemyCar(id, players[id]);
+                    }
+                });
+            });
+
+            // New player joined
+            socket.on('newPlayer', (data) => {
+                addEnemyCar(data.id, data.player);
+            });
+
+            // Player moved
+            socket.on('playerMoved', (data) => {
+                if (otherPlayers[data.id]) {
+                    otherPlayers[data.id].mesh.position.set(data.x, 0, data.z);
+                    otherPlayers[data.id].mesh.rotation.y = data.angle;
+                }
+            });
+
+            // Player left
+            socket.on('playerDisconnected', (id) => {
+                if (otherPlayers[id]) {
+                    scene.remove(otherPlayers[id].mesh);
+                    delete otherPlayers[id];
+                }
+            });
+
+        } catch(e) {
+            console.error(e);
+            alert("Error connecting. Check URL.");
+        }
+    });
+
+    function addEnemyCar(id, data) {
+        // Create Blue car for enemies
+        const enemyMesh = createCar(0x1976D2); 
+        enemyMesh.position.set(data.x, 0, data.z);
+        scene.add(enemyMesh);
+        otherPlayers[id] = { mesh: enemyMesh };
+    }
+
     // --- Game Logic ---
     function resetCar() {
         carProps.x = 0;
         carProps.z = 0;
         carProps.speed = 0;
-        carProps.angle = Math.PI; // Facing forward (Standard ThreeJS is usually Z+ towards cam, but we inverted)
-        // Adjust for our coordinate system
-        // Start at 0,0 facing 0, -100
         carProps.angle = Math.PI; 
     }
 
     function updatePhysics() {
         if (gameState !== 'PLAYING') return;
 
-        // Gas/Brake
+        // Drive
         if (keys.ArrowUp || keys.w) carProps.speed += carProps.acceleration;
         if (keys.ArrowDown || keys.s) carProps.speed -= carProps.acceleration;
-
-        // Friction
         carProps.speed *= carProps.friction;
 
-        // Steering (only if moving)
         if (Math.abs(carProps.speed) > 0.01) {
             const dir = carProps.speed > 0 ? 1 : -1;
             if (keys.ArrowLeft || keys.a) carProps.angle += carProps.turnSpeed * dir;
             if (keys.ArrowRight || keys.d) carProps.angle -= carProps.turnSpeed * dir;
         }
 
-        // Apply Velocity
         carProps.x += Math.sin(carProps.angle) * carProps.speed;
         carProps.z += Math.cos(carProps.angle) * carProps.speed;
 
-        // Update 3D Object
         playerCar.position.set(carProps.x, 0, carProps.z);
         playerCar.rotation.y = carProps.angle;
 
-        // Camera Follow
+        // Emit Movement to Server
+        if (socket && socket.connected) {
+            socket.emit('playerMovement', {
+                x: carProps.x,
+                z: carProps.z,
+                angle: carProps.angle
+            });
+        }
+
+        // Camera
         const camDist = 10;
         const camHeight = 5;
         camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
@@ -369,7 +380,7 @@
         camera.position.y = camHeight;
         camera.lookAt(playerCar.position);
 
-        // Checkpoints
+        // Checkpoints (Logic same as before)
         const cp = checkPoints[nextCheckpoint];
         const dist = Math.sqrt((carProps.x - cp.x)**2 + (carProps.z - cp.z)**2);
         
@@ -385,7 +396,6 @@
             }
         }
         
-        // Timer
         elapsedTime = (Date.now() - startTime) / 1000;
         document.getElementById('time-display').innerText = elapsedTime.toFixed(2);
         document.getElementById('speed-display').innerText = Math.floor(carProps.speed * 200);
@@ -394,8 +404,6 @@
     function startGame() {
         gameState = 'PLAYING';
         resetCar();
-        // Face -Z
-        carProps.angle = Math.PI; 
         currentLap = 1;
         nextCheckpoint = 0;
         startTime = Date.now();
@@ -405,31 +413,24 @@
 
     function endGame() {
         gameState = 'FINISHED';
-        saveScore(elapsedTime);
         document.getElementById('final-time').innerText = `Time: ${elapsedTime.toFixed(2)}s`;
         document.getElementById('game-over').classList.remove('hidden');
     }
 
-    // UI Listeners
-    document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
 
-    // Animation Loop
     function animate() {
         requestAnimationFrame(animate);
         updatePhysics();
         renderer.render(scene, camera);
     }
 
-    // Handle Window Resize
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Initial Setup
-    renderLeaderboard();
     resetCar();
     animate();
 
