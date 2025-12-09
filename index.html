@@ -148,7 +148,6 @@
     
     // --- Connect Immediately ---
     try {
-        // "io()" automatically connects to the server that served this page
         if (typeof io !== 'undefined') {
             socket = io(); 
             
@@ -250,7 +249,38 @@
         z: 0
     };
 
-    const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, s: false, a: false, d: false, r: false };
+    // --- ROBUST INPUT HANDLING ---
+    const keys = { 
+        ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, 
+        w: false, a: false, s: false, d: false 
+    };
+
+    function setKey(key, value) {
+        // Direct match (Arrow keys)
+        if (keys.hasOwnProperty(key)) {
+            keys[key] = value;
+        } 
+        // Lowercase match (WASD regardless of shift/caps)
+        else if (keys.hasOwnProperty(key.toLowerCase())) {
+            keys[key.toLowerCase()] = value;
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        setKey(e.key, true);
+        if (e.key.toLowerCase() === 'r') resetCar();
+    });
+
+    window.addEventListener('keyup', (e) => {
+        setKey(e.key, false);
+    });
+
+    // Mobile Input
+    const btns = document.querySelectorAll('.control-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[btn.dataset.key] = true; });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[btn.dataset.key] = false; });
+    });
 
     // --- Assets ---
     function createCar(color) {
@@ -301,24 +331,14 @@
     }
     createTrack();
 
-    // --- Input & Game Logic ---
-    window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = true; if(e.key.toLowerCase() === 'r') resetCar(); });
-    window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key] = false; });
-    const btns = document.querySelectorAll('.control-btn');
-    btns.forEach(btn => {
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[btn.dataset.key] = true; });
-        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[btn.dataset.key] = false; });
-    });
-
     function resetCar(offset = false) {
         const xOff = offset ? (Math.random() * 4 - 2) : 0; 
         const zOff = offset ? (Math.random() * 4 - 2) : 0;
         carProps.x = xOff; carProps.z = zOff; carProps.speed = 0; carProps.angle = Math.PI; 
     }
 
-    // --- CAMERA LOGIC (New Function) ---
+    // --- CAMERA LOGIC ---
     function updateCamera() {
-        // Higher and further back to prevent "under car" feeling
         const camDist = 14; 
         const camHeight = 7;
         
@@ -326,22 +346,31 @@
         camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
         camera.position.y = camHeight;
         
-        // Look slightly above the car's position so we see the horizon, not the floor
         camera.lookAt(playerCar.position.x, playerCar.position.y + 1, playerCar.position.z);
     }
 
     function updatePhysics() {
         if (gameState !== 'PLAYING') return;
+
+        // Apply controls
         if (keys.ArrowUp || keys.w) carProps.speed += carProps.acceleration;
         if (keys.ArrowDown || keys.s) carProps.speed -= carProps.acceleration;
+        
+        // Apply friction
         carProps.speed *= carProps.friction;
+
+        // Apply turning if moving
         if (Math.abs(carProps.speed) > 0.01) {
             const dir = carProps.speed > 0 ? 1 : -1;
             if (keys.ArrowLeft || keys.a) carProps.angle += carProps.turnSpeed * dir;
             if (keys.ArrowRight || keys.d) carProps.angle -= carProps.turnSpeed * dir;
         }
+
+        // Apply velocity
         carProps.x += Math.sin(carProps.angle) * carProps.speed;
         carProps.z += Math.cos(carProps.angle) * carProps.speed;
+        
+        // Update Mesh
         playerCar.position.set(carProps.x, 0, carProps.z);
         playerCar.rotation.y = carProps.angle;
 
@@ -383,7 +412,7 @@
     function animate() { 
         requestAnimationFrame(animate); 
         updatePhysics(); 
-        updateCamera(); // Call this EVERY frame, even in menu
+        updateCamera(); 
         renderer.render(scene, camera); 
     }
     
