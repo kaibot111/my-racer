@@ -206,9 +206,10 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // Lights - FIXED SHADOWS
+    // Lights
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     scene.add(hemiLight);
 
@@ -216,7 +217,7 @@
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
     
-    // --- SHADOW FIX: Expand shadow camera to cover the whole track ---
+    // Shadow Fix
     const d = 150;
     dirLight.shadow.camera.left = -d;
     dirLight.shadow.camera.right = d;
@@ -224,7 +225,7 @@
     dirLight.shadow.camera.bottom = -d;
     dirLight.shadow.camera.near = 0.1;
     dirLight.shadow.camera.far = 500;
-    dirLight.shadow.bias = -0.0005; // Removes visual artifacts
+    dirLight.shadow.bias = -0.0005; 
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
@@ -253,9 +254,7 @@
 
     // --- Assets ---
     function createCar(color) {
-        // Fallback color if undefined
         if (!color) color = Math.random() * 0xffffff;
-        
         const carGroup = new THREE.Group();
         const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2.2), new THREE.MeshStandardMaterial({ color: color, roughness: 0.2 }));
         body.position.y = 0.5; body.castShadow = true; carGroup.add(body);
@@ -270,12 +269,10 @@
         return carGroup;
     }
     
-    // Player is always Red locally
     const playerCar = createCar(0xe53935);
     scene.add(playerCar);
 
     function addEnemyCar(id, data) {
-        // Use color from server or random if missing
         const enemyColor = data.color || Math.random() * 0xffffff;
         const enemyMesh = createCar(enemyColor); 
         enemyMesh.position.set(data.x, 0, data.z);
@@ -314,14 +311,23 @@
     });
 
     function resetCar(offset = false) {
-        // Add random offset so players don't spawn on top of each other
         const xOff = offset ? (Math.random() * 4 - 2) : 0; 
         const zOff = offset ? (Math.random() * 4 - 2) : 0;
+        carProps.x = xOff; carProps.z = zOff; carProps.speed = 0; carProps.angle = Math.PI; 
+    }
+
+    // --- CAMERA LOGIC (New Function) ---
+    function updateCamera() {
+        // Higher and further back to prevent "under car" feeling
+        const camDist = 14; 
+        const camHeight = 7;
         
-        carProps.x = xOff; 
-        carProps.z = zOff; 
-        carProps.speed = 0; 
-        carProps.angle = Math.PI; 
+        camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
+        camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
+        camera.position.y = camHeight;
+        
+        // Look slightly above the car's position so we see the horizon, not the floor
+        camera.lookAt(playerCar.position.x, playerCar.position.y + 1, playerCar.position.z);
     }
 
     function updatePhysics() {
@@ -343,13 +349,6 @@
             socket.emit('playerMovement', { x: carProps.x, z: carProps.z, angle: carProps.angle });
         }
 
-        // --- CAMERA UPDATE (Tweaked for better visibility) ---
-        const camDist = 12; const camHeight = 6;
-        camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
-        camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
-        camera.position.y = camHeight;
-        camera.lookAt(playerCar.position);
-
         const cp = checkPoints[nextCheckpoint];
         const dist = Math.sqrt((carProps.x - cp.x)**2 + (carProps.z - cp.z)**2);
         if (dist < cp.radius) {
@@ -367,7 +366,6 @@
 
     function startGame() {
         gameState = 'PLAYING'; 
-        // Reset car with a small random offset so we don't stack on opponents
         resetCar(true); 
         currentLap = 1; nextCheckpoint = 0; startTime = Date.now();
         document.getElementById('main-menu').classList.add('hidden');
@@ -382,7 +380,13 @@
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', startGame);
 
-    function animate() { requestAnimationFrame(animate); updatePhysics(); renderer.render(scene, camera); }
+    function animate() { 
+        requestAnimationFrame(animate); 
+        updatePhysics(); 
+        updateCamera(); // Call this EVERY frame, even in menu
+        renderer.render(scene, camera); 
+    }
+    
     window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 
     resetCar();
