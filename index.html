@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Retro Racer 3000 - Multiplayer Online</title>
+    <title>Retro Racer Online</title>
     <!-- Import Socket.io Client (CDN used for compatibility) -->
     <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
     <style>
@@ -208,13 +208,23 @@
     renderer.shadowMap.enabled = true;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // Lights
+    // Lights - FIXED SHADOWS
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     scene.add(hemiLight);
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
+    
+    // --- SHADOW FIX: Expand shadow camera to cover the whole track ---
+    const d = 150;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    dirLight.shadow.camera.near = 0.1;
+    dirLight.shadow.camera.far = 500;
+    dirLight.shadow.bias = -0.0005; // Removes visual artifacts
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
@@ -333,7 +343,8 @@
             socket.emit('playerMovement', { x: carProps.x, z: carProps.z, angle: carProps.angle });
         }
 
-        const camDist = 10; const camHeight = 5;
+        // --- CAMERA UPDATE (Tweaked for better visibility) ---
+        const camDist = 12; const camHeight = 6;
         camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
         camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
         camera.position.y = camHeight;
