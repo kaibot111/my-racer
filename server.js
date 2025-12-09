@@ -1,50 +1,44 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
+const io = new Server(server);
 
-// Allow connections from anywhere (CORS)
-const io = new Server(server, {
-    cors: {
-        origin: "*", 
-        methods: ["GET", "POST"]
-    }
-});
-
-// --- THIS IS THE NEW PART ---
-// This tells the server what to show when you visit the URL in your browser
+// --- FLAT STRUCTURE CONFIGURATION ---
+// This tells the server: "When someone visits the site, give them the index.html that is right next to me."
 app.get('/', (req, res) => {
-    res.send('Race Control Server is online! Use this URL in your game code.');
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
-// ----------------------------
+// ------------------------------------
 
 let players = {};
 
 io.on('connection', (socket) => {
-    console.log('New driver connected:', socket.id);
+    console.log('New racer joined:', socket.id);
 
-    // Add new player
-    players[socket.id] = { x: 0, z: 0, angle: 0, color: Math.random() * 0xffffff };
-    
-    // Send current list of players to the new guy
+    players[socket.id] = { 
+        x: 0, 
+        z: 0, 
+        angle: Math.PI, 
+        color: Math.random() * 0xffffff 
+    };
+
     socket.emit('currentPlayers', players);
-    
-    // Tell everyone else a new driver joined
+
     socket.broadcast.emit('newPlayer', { 
         id: socket.id, 
         player: players[socket.id] 
     });
 
-    // Handle Movement Updates
     socket.on('playerMovement', (movementData) => {
         if (players[socket.id]) {
             players[socket.id].x = movementData.x;
             players[socket.id].z = movementData.z;
             players[socket.id].angle = movementData.angle;
             
-            // Broadcast to everyone else
             socket.broadcast.emit('playerMoved', {
                 id: socket.id,
                 x: movementData.x,
@@ -54,9 +48,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle Disconnect
     socket.on('disconnect', () => {
-        console.log('Driver disconnected:', socket.id);
+        console.log('Racer left:', socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
@@ -64,5 +57,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Race control listening on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
