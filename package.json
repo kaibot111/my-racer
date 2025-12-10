@@ -1,5 +1,5 @@
 {
-  "name": "polyracer-multiplayer",
+  "name": "polyracer-flat",
   "version": "1.0.0",
   "description": "3D Multiplayer Polygon Racing Game",
   "main": "server.js",
