@@ -3,44 +3,30 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 
-// --- 1. Serve the specific files directly ---
+// --- FIX: Serve ALL files in the current folder ---
+// This tells the server: "Look in this same folder for index.html or game.js"
+app.use(express.static(__dirname));
 
-// When user visits the URL, give them the HTML
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
-});
-
-// When the HTML asks for the game logic, give them the JS
-app.get('/game.js', (req, res) => {
-    res.sendFile(__dirname + '/game.js');
-});
-
-// --- 2. Multiplayer Logic ---
-
-// Store players: { socketId: { x, z, rot, color } }
+// --- Multiplayer Logic ---
 let players = {};
 
 io.on('connection', (socket) => {
     console.log('New racer joined:', socket.id);
 
-    // Create new player data
     players[socket.id] = {
-        x: 0,
-        z: 0,
-        rot: 0,
+        x: 0, 
+        z: 0, 
+        rot: 0, 
         color: '#' + Math.floor(Math.random()*16777215).toString(16)
     };
 
-    // Send existing players to the new guy
     socket.emit('currentPlayers', players);
 
-    // Tell everyone else about the new guy
     socket.broadcast.emit('newPlayer', { 
         id: socket.id, 
         player: players[socket.id] 
     });
 
-    // Handle Movement
     socket.on('playerMovement', (movementData) => {
         if (players[socket.id]) {
             players[socket.id].x = movementData.x;
@@ -56,7 +42,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle Disconnect
     socket.on('disconnect', () => {
         console.log('Racer left:', socket.id);
         delete players[socket.id];
