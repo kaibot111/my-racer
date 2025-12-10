@@ -4,23 +4,24 @@
     <meta charset="UTF-8">
     <title>PolyRacer 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Courier New', Courier, monospace; }
         #info {
             position: absolute;
             top: 20px;
             width: 100%;
             text-align: center;
-            color: white;
+            color: #fff;
             pointer-events: none;
-            text-transform: uppercase;
-            letter-spacing: 2px;
+            font-weight: bold;
+            font-size: 20px;
+            text-shadow: 2px 2px 0 #000;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-    <div id="info">PolyRacer: Use Arrow Keys or WASD to Drive</div>
+    <div id="info">WAITING FOR SERVER...</div>
     <script src="game.js"></script>
 </body>
 </html>
