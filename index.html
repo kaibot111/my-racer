@@ -3,20 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Retro Racer Online</title>
-    <!-- Import Socket.io Client (CDN used for compatibility) -->
+    <title>Retro Racer Online (Server Authoritative)</title>
     <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: white; }
         #canvas-container { width: 100vw; height: 100vh; display: block; }
         
-        /* UI Overlay */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
             display: flex; flex-direction: column; justify-content: space-between;
         }
         
-        /* HUD */
         #hud {
             padding: 20px;
             display: flex;
@@ -26,42 +23,14 @@
             text-shadow: 2px 2px 0 #000;
         }
         .stat-box { background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.2); }
-        .player-count { color: #00e676; }
-
-        /* Menus */
-        .menu-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            pointer-events: auto;
-            backdrop-filter: blur(5px);
-            transition: opacity 0.3s;
-            z-index: 10;
-        }
-        .hidden { opacity: 0; pointer-events: none; }
         
-        h1 { font-size: 60px; margin: 0 0 20px 0; color: #ffeb3b; text-transform: uppercase; font-style: italic; letter-spacing: -2px; text-shadow: 4px 4px 0 #d32f2f; transform: skew(-10deg); }
-        h2 { margin-top: 0; color: #03a9f4; }
-        
-        button {
-            background: linear-gradient(45deg, #ff5722, #f44336);
-            border: none; padding: 15px 40px; color: white; font-size: 24px; font-weight: bold;
-            text-transform: uppercase; cursor: pointer; border-radius: 50px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5); margin: 10px;
-            transform: skew(-10deg); transition: transform 0.1s, box-shadow 0.1s;
-        }
-        button:hover { transform: skew(-10deg) scale(1.05); box-shadow: 0 10px 30px rgba(244, 67, 54, 0.6); }
-        button:active { transform: skew(-10deg) scale(0.95); }
-        
-        #controls-hint {
-            margin-top: 20px; color: #aaa; font-size: 14px;
+        .no-js-message {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; background: rgba(255,0,0,0.2); padding: 40px; border: 2px solid red; border-radius: 10px;
         }
 
-        /* Mobile Controls */
         #mobile-controls {
-            display: none;
-            position: absolute; bottom: 20px; width: 100%; height: 150px;
-            pointer-events: none;
+            display: none; position: absolute; bottom: 20px; width: 100%; height: 150px; pointer-events: auto;
         }
         .control-btn {
             position: absolute; width: 80px; height: 80px;
@@ -73,37 +42,20 @@
         #btn-right { left: 120px; bottom: 20px; }
         #btn-gas { right: 20px; bottom: 20px; background: rgba(0, 230, 118, 0.3); }
         #btn-brake { right: 120px; bottom: 20px; background: rgba(255, 23, 68, 0.3); width: 60px; height: 60px; bottom: 30px;}
-        
-        /* Noscript */
-        .no-js-message {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            text-align: center; background: rgba(255,0,0,0.2); padding: 40px; border: 2px solid red; border-radius: 10px;
-        }
 
-        @media (max-width: 768px) {
-            #mobile-controls { display: block; }
-            h1 { font-size: 40px; }
-        }
+        @media (max-width: 768px) { #mobile-controls { display: block; } }
     </style>
 </head>
 <body>
 
-<noscript>
-    <div class="no-js-message">
-        <h1>⚠️ Javascript Required</h1>
-        <p>This game requires JavaScript to play.</p>
-    </div>
-</noscript>
-
+<noscript><div class="no-js-message"><h1>⚠️ Javascript Required</h1></div></noscript>
 <div id="canvas-container"></div>
 
 <div id="ui-layer">
     <div id="hud">
-        <div class="stat-box">TIME: <span id="time-display">0.00</span>s</div>
-        <div class="stat-box">LAP: <span id="lap-display">1/3</span></div>
-        <div class="stat-box player-count">PLAYERS: <span id="player-count-display">1</span></div>
+        <div class="stat-box">Ping: <span id="ping-display">0</span>ms</div>
+        <div class="stat-box">PLAYERS: <span id="player-count-display">0</span></div>
     </div>
-    
     <div id="mobile-controls">
         <div id="btn-left" class="control-btn" data-key="ArrowLeft"></div>
         <div id="btn-right" class="control-btn" data-key="ArrowRight"></div>
@@ -112,100 +64,73 @@
     </div>
 </div>
 
-<!-- Main Menu -->
-<div id="main-menu" class="menu-overlay">
-    <h1>Retro Racer Online</h1>
-    <div id="status-msg" style="margin-bottom:15px; color:#00e676;">Connecting to server...</div>
-    <div style="margin-bottom: 20px; font-size: 20px; color: #fff;">
-        Players Online: <span id="menu-player-count" style="font-weight:bold; color: #ffeb3b;">1</span>
-    </div>
-    <button id="start-btn" style="display:none;">START ENGINE</button>
-    <div id="controls-hint">WASD / Arrows to Drive • R to Reset</div>
-</div>
-
-<!-- Game Over -->
-<div id="game-over" class="menu-overlay hidden">
-    <h1>FINISHED!</h1>
-    <h2 id="final-time">Time: 0.00s</h2>
-    <button id="restart-btn">Race Again</button>
-</div>
-
-<!-- Scripts -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-    // --- Multiplayer Global Vars ---
     let socket;
-    let otherPlayers = {}; 
-    let myId;
-    let playerCount = 1;
-
-    function updatePlayerCount(count) {
-        // Adjust for self + others
-        const total = Object.keys(otherPlayers).length + 1;
-        document.getElementById('player-count-display').innerText = total;
-        document.getElementById('menu-player-count').innerText = total;
-    }
-
-    // Helper to enable start button even if offline
-    function enableOfflineMode(reason) {
-        console.log("Entering Offline Mode: " + reason);
-        document.getElementById('status-msg').innerText = "OFFLINE MODE (Single Player)";
-        document.getElementById('status-msg').style.color = "#ff9800"; // Orange warning
-        document.getElementById('start-btn').style.display = 'block';
-    }
+    let myId = null;
+    let playersMesh = {}; // Stores the 3D objects
     
-    // --- Connect Immediately ---
+    // Inputs
+    const inputs = { up: false, down: false, left: false, right: false };
+    
+    // --- CONNECT ---
     try {
         if (typeof io !== 'undefined') {
-            socket = io(); 
+            socket = io();
             
-            socket.on('connect', () => {
-                console.log("Connected to server!");
-                document.getElementById('status-msg').innerText = "ONLINE - READY TO RACE";
-                document.getElementById('status-msg').style.color = "#00e676";
-                document.getElementById('start-btn').style.display = 'block';
-                myId = socket.id;
+            // 1. Initial Setup
+            socket.on('init', (data) => {
+                myId = data.id;
+                // Create existing players
+                for(let id in data.players) {
+                    if(!playersMesh[id]) createCarMesh(id, data.players[id].color);
+                }
             });
 
-            socket.on('connect_error', () => {
-                 enableOfflineMode("Server not found");
-            });
+            // 2. The Main Update Loop (Received from Server)
+            socket.on('stateUpdate', (serverPlayers) => {
+                const count = Object.keys(serverPlayers).length;
+                document.getElementById('player-count-display').innerText = count;
 
-            socket.on('currentPlayers', (players) => {
-                Object.keys(players).forEach((id) => {
-                    if (id !== myId) addEnemyCar(id, players[id]);
-                });
-                updatePlayerCount();
-            });
+                for (let id in serverPlayers) {
+                    const pState = serverPlayers[id];
 
-            socket.on('newPlayer', (data) => {
-                addEnemyCar(data.id, data.player);
-                updatePlayerCount();
-            });
+                    // If we see a player ID we don't have a mesh for, create it
+                    if (!playersMesh[id]) {
+                        createCarMesh(id, pState.color);
+                    }
 
-            socket.on('playerMoved', (data) => {
-                if (otherPlayers[data.id]) {
-                    otherPlayers[data.id].mesh.position.set(data.x, 0, data.z);
-                    otherPlayers[data.id].mesh.rotation.y = data.angle;
+                    // Update Position strictly based on server data
+                    const mesh = playersMesh[id];
+                    mesh.position.set(pState.x, 0, pState.z);
+                    mesh.rotation.y = pState.angle;
+
+                    // If this is ME, update the camera
+                    if (id === myId) {
+                        updateCamera(mesh);
+                    }
                 }
             });
 
             socket.on('playerDisconnected', (id) => {
-                if (otherPlayers[id]) {
-                    scene.remove(otherPlayers[id].mesh);
-                    delete otherPlayers[id];
-                    updatePlayerCount();
+                if (playersMesh[id]) {
+                    scene.remove(playersMesh[id]);
+                    delete playersMesh[id];
                 }
             });
-        } else {
-             enableOfflineMode("Socket.io library failed to load");
-        }
-    } catch(e) {
-        console.error(e);
-        enableOfflineMode("Connection Error");
-    }
 
-    // --- 3D Game Engine (Three.js) ---
+            // Ping Check
+            setInterval(() => {
+                const start = Date.now();
+                socket.emit('ping', () => {
+                    document.getElementById('ping-display').innerText = Date.now() - start;
+                });
+            }, 2000);
+
+        }
+    } catch(e) { console.error(e); }
+
+    // --- THREE JS SETUP ---
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
     scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
@@ -214,224 +139,111 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // Lights
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     scene.add(hemiLight);
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
-    
-    // Shadow Fix
     const d = 150;
-    dirLight.shadow.camera.left = -d;
-    dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d;
-    dirLight.shadow.camera.bottom = -d;
-    dirLight.shadow.camera.near = 0.1;
-    dirLight.shadow.camera.far = 500;
-    dirLight.shadow.bias = -0.0005; 
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
+    dirLight.shadow.mapSize.width = 2048; dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    // Game Variables
-    let gameState = 'MENU'; 
-    let startTime = 0;
-    let elapsedTime = 0;
-    let currentLap = 1;
-    const totalLaps = 3;
-    let nextCheckpoint = 0;
-    
-    // Physics
-    const carProps = {
-        speed: 0,
-        maxSpeed: 1.2,
-        acceleration: 0.02,
-        friction: 0.98,
-        turnSpeed: 0.05,
-        angle: Math.PI, 
-        x: 0,
-        z: 0
-    };
-
-    // --- ROBUST INPUT HANDLING ---
-    const keys = { 
-        ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, 
-        w: false, a: false, s: false, d: false 
-    };
-
-    function setKey(key, value) {
-        // Direct match (Arrow keys)
-        if (keys.hasOwnProperty(key)) {
-            keys[key] = value;
-        } 
-        // Lowercase match (WASD regardless of shift/caps)
-        else if (keys.hasOwnProperty(key.toLowerCase())) {
-            keys[key.toLowerCase()] = value;
-        }
-    }
-
-    window.addEventListener('keydown', (e) => {
-        setKey(e.key, true);
-        if (e.key.toLowerCase() === 'r') resetCar();
-    });
-
-    window.addEventListener('keyup', (e) => {
-        setKey(e.key, false);
-    });
-
-    // Mobile Input
-    const btns = document.querySelectorAll('.control-btn');
-    btns.forEach(btn => {
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[btn.dataset.key] = true; });
-        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[btn.dataset.key] = false; });
-    });
-
-    // --- Assets ---
-    function createCar(color) {
-        if (!color) color = Math.random() * 0xffffff;
+    // --- ASSETS ---
+    function createCarMesh(id, color) {
         const carGroup = new THREE.Group();
-        const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2.2), new THREE.MeshStandardMaterial({ color: color, roughness: 0.2 }));
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2.2), new THREE.MeshStandardMaterial({ color: color || 0xff0000 }));
         body.position.y = 0.5; body.castShadow = true; carGroup.add(body);
+        
         const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 1), new THREE.MeshStandardMaterial({ color: 0x222222 }));
         cabin.position.set(0, 0.9, -0.2); carGroup.add(cabin);
+        
         const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 24);
         const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
         [{ x: 0.6, z: 0.8 }, { x: -0.6, z: 0.8 }, { x: 0.6, z: -0.8 }, { x: -0.6, z: -0.8 }].forEach(p => {
             const w = new THREE.Mesh(wheelGeo, wheelMat);
             w.rotation.z = Math.PI / 2; w.position.set(p.x, 0.35, p.z); carGroup.add(w);
         });
+
+        scene.add(carGroup);
+        playersMesh[id] = carGroup;
         return carGroup;
     }
-    
-    const playerCar = createCar(0xe53935);
-    scene.add(playerCar);
 
-    function addEnemyCar(id, data) {
-        const enemyColor = data.color || Math.random() * 0xffffff;
-        const enemyMesh = createCar(enemyColor); 
-        enemyMesh.position.set(data.x, 0, data.z);
-        scene.add(enemyMesh);
-        otherPlayers[id] = { mesh: enemyMesh };
-    }
-
-    // Track
-    const trackWidth = 14;
-    const checkPoints = [{ x: 0, z: -100, radius: 20 }, { x: 100, z: -100, radius: 20 }, { x: 100, z: 0, radius: 20 }, { x: 0, z: 0, radius: 15 }];
     function createTrack() {
         const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({ color: 0x388E3C }));
         ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+        
         const roadMat = new THREE.MeshStandardMaterial({ color: 0x424242 });
-        function createStraight(x, z, w, l, rotY) {
-            const road = new THREE.Mesh(new THREE.PlaneGeometry(w, l), roadMat);
-            road.rotation.x = -Math.PI / 2; road.rotation.z = rotY; road.position.set(x, 0.02, z); road.receiveShadow = true; scene.add(road);
+        const trackWidth = 14;
+        
+        function addRoad(x, z, w, l, rotY) {
+            const r = new THREE.Mesh(new THREE.PlaneGeometry(w, l), roadMat);
+            r.rotation.x = -Math.PI/2; r.rotation.z = rotY; r.position.set(x, 0.02, z); r.receiveShadow = true;
+            scene.add(r);
         }
-        createStraight(0, -50, trackWidth, 110, 0); createStraight(50, -100, trackWidth, 110, Math.PI / 2);
-        createStraight(100, -50, trackWidth, 110, 0); createStraight(50, 0, trackWidth, 110, Math.PI / 2);
-        checkPoints.forEach((cp, i) => {
-            const marker = new THREE.Mesh(new THREE.ConeGeometry(1, 4, 8), new THREE.MeshBasicMaterial({ color: i === 3 ? 0xffffff : 0xffeb3b }));
-            marker.position.set(cp.x + (i===1 || i===2 ? 8 : -8), 2, cp.z + (i===2 || i===3 ? 8 : -8));
-            marker.rotation.x = Math.PI; scene.add(marker);
-        });
+        addRoad(0, -50, trackWidth, 110, 0); 
+        addRoad(50, -100, trackWidth, 110, Math.PI / 2);
+        addRoad(100, -50, trackWidth, 110, 0); 
+        addRoad(50, 0, trackWidth, 110, Math.PI / 2);
     }
     createTrack();
 
-    function resetCar(offset = false) {
-        const xOff = offset ? (Math.random() * 4 - 2) : 0; 
-        const zOff = offset ? (Math.random() * 4 - 2) : 0;
-        carProps.x = xOff; carProps.z = zOff; carProps.speed = 0; carProps.angle = Math.PI; 
+    // --- INPUT HANDLING ---
+    // Instead of moving the car, we just tell the server "I am pressing UP"
+    function sendInput() {
+        if (socket) socket.emit('input', inputs);
     }
 
-    // --- CAMERA LOGIC ---
-    function updateCamera() {
-        const camDist = 14; 
-        const camHeight = 7;
-        
-        camera.position.x = carProps.x - Math.sin(carProps.angle) * camDist;
-        camera.position.z = carProps.z - Math.cos(carProps.angle) * camDist;
+    const keyMap = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' };
+
+    window.addEventListener('keydown', (e) => {
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        if(keyMap[k]) {
+            inputs[keyMap[k]] = true;
+            sendInput();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        if(keyMap[k]) {
+            inputs[keyMap[k]] = false;
+            sendInput();
+        }
+    });
+    
+    // Mobile Support
+    const btns = document.querySelectorAll('.control-btn');
+    const mobMap = { 'btn-gas': 'up', 'btn-brake': 'down', 'btn-left': 'left', 'btn-right': 'right' };
+    btns.forEach(btn => {
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); inputs[mobMap[btn.id]] = true; sendInput(); });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); inputs[mobMap[btn.id]] = false; sendInput(); });
+    });
+
+    // --- CAMERA ---
+    function updateCamera(targetCar) {
+        const camDist = 14; const camHeight = 7;
+        camera.position.x = targetCar.position.x - Math.sin(targetCar.rotation.y) * camDist;
+        camera.position.z = targetCar.position.z - Math.cos(targetCar.rotation.y) * camDist;
         camera.position.y = camHeight;
-        
-        camera.lookAt(playerCar.position.x, playerCar.position.y + 1, playerCar.position.z);
+        camera.lookAt(targetCar.position.x, targetCar.position.y + 1, targetCar.position.z);
     }
 
-    function updatePhysics() {
-        if (gameState !== 'PLAYING') return;
-
-        // Apply controls
-        if (keys.ArrowUp || keys.w) carProps.speed += carProps.acceleration;
-        if (keys.ArrowDown || keys.s) carProps.speed -= carProps.acceleration;
-        
-        // Apply friction
-        carProps.speed *= carProps.friction;
-
-        // Apply turning if moving
-        if (Math.abs(carProps.speed) > 0.01) {
-            const dir = carProps.speed > 0 ? 1 : -1;
-            if (keys.ArrowLeft || keys.a) carProps.angle += carProps.turnSpeed * dir;
-            if (keys.ArrowRight || keys.d) carProps.angle -= carProps.turnSpeed * dir;
-        }
-
-        // Apply velocity
-        carProps.x += Math.sin(carProps.angle) * carProps.speed;
-        carProps.z += Math.cos(carProps.angle) * carProps.speed;
-        
-        // Update Mesh
-        playerCar.position.set(carProps.x, 0, carProps.z);
-        playerCar.rotation.y = carProps.angle;
-
-        if (socket && socket.connected) {
-            socket.emit('playerMovement', { x: carProps.x, z: carProps.z, angle: carProps.angle });
-        }
-
-        const cp = checkPoints[nextCheckpoint];
-        const dist = Math.sqrt((carProps.x - cp.x)**2 + (carProps.z - cp.z)**2);
-        if (dist < cp.radius) {
-            nextCheckpoint++;
-            if (nextCheckpoint >= checkPoints.length) {
-                nextCheckpoint = 0; currentLap++;
-                document.getElementById('lap-display').innerText = `${currentLap}/${totalLaps}`;
-                if (currentLap > totalLaps) endGame();
-            }
-        }
-        elapsedTime = (Date.now() - startTime) / 1000;
-        document.getElementById('time-display').innerText = elapsedTime.toFixed(2);
-        document.getElementById('speed-display').innerText = Math.floor(carProps.speed * 200);
-    }
-
-    function startGame() {
-        gameState = 'PLAYING'; 
-        resetCar(true); 
-        currentLap = 1; nextCheckpoint = 0; startTime = Date.now();
-        document.getElementById('main-menu').classList.add('hidden');
-        document.getElementById('game-over').classList.add('hidden');
-        
-        // FOCUS FIX: Force focus to window so keyboard works immediately
-        window.focus();
-    }
-    function endGame() {
-        gameState = 'FINISHED';
-        document.getElementById('final-time').innerText = `Time: ${elapsedTime.toFixed(2)}s`;
-        document.getElementById('game-over').classList.remove('hidden');
-    }
-
-    document.getElementById('start-btn').addEventListener('click', startGame);
-    document.getElementById('restart-btn').addEventListener('click', startGame);
-
-    function animate() { 
-        requestAnimationFrame(animate); 
-        updatePhysics(); 
-        updateCamera(); 
-        renderer.render(scene, camera); 
+    // --- ANIMATION LOOP ---
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
     }
     
     window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-
-    resetCar();
     animate();
+
 </script>
 </body>
 </html>
