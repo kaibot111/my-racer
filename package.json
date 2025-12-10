@@ -1,7 +1,7 @@
 {
-  "name": "poly-racer-flat",
+  "name": "polyracer-multiplayer",
   "version": "1.0.0",
-  "description": "Multiplayer Polygon Racing",
+  "description": "3D Multiplayer Polygon Racing Game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,5 +9,8 @@
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
