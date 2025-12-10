@@ -1,7 +1,7 @@
 {
-  "name": "retro-racer",
-  "version": "1.0.0",
-  "description": "Multiplayer racing game",
+  "name": "retro-racer-server-side",
+  "version": "2.0.0",
+  "description": "Server authoritative racing game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
