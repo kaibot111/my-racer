@@ -2,22 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polygon Racer 8</title>
+    <title>PolyRacer 3D</title>
     <style>
-        body { margin: 0; background: #222; overflow: hidden; color: white; font-family: sans-serif; }
-        canvas { display: block; margin: 0 auto; background: #333; }
-        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-    <div id="ui">
-        <h1>Polygon Racer</h1>
-        <p>Use Arrow Keys or WASD to drive.</p>
-    </div>
-    <canvas id="gameCanvas"></canvas>
-
-    <script src="/socket.io/socket.io.js"></script>
+    <div id="info">PolyRacer: Use Arrow Keys or WASD to Drive</div>
     <script src="game.js"></script>
 </body>
 </html>
