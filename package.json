@@ -1,7 +1,7 @@
 {
-  "name": "retro-racer-server-side",
-  "version": "2.0.0",
-  "description": "Server authoritative racing game",
+  "name": "poly-racer-flat",
+  "version": "1.0.0",
+  "description": "Multiplayer Polygon Racing",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
