@@ -2,49 +2,52 @@ const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
+const path = require('path');
 
-// CHANGE: Serve files from the root directory (__)
-app.use(express.static(__dirname));
+// Serve static files from the 'public' folder
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Route for the homepage
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
-});
-
-// Game State
-const players = {};
+// Store players: { socketId: { x, z, rot, color } }
+let players = {};
 
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    console.log('A racer connected:', socket.id);
 
-    // Create a new player
+    // Assign a random color to the new racer
     players[socket.id] = {
-        id: socket.id,
-        x: 400,
-        y: 300,
-        angle: 0,
-        color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+        x: 0,
+        z: 0,
+        rot: 0,
+        color: '#' + Math.floor(Math.random()*16777215).toString(16)
     };
 
-    // Send current players to the new connection
+    // Send the current list of players to the new person
     socket.emit('currentPlayers', players);
 
-    // Broadcast new player to others
-    socket.broadcast.emit('newPlayer', players[socket.id]);
+    // Tell everyone else a new racer has joined
+    socket.broadcast.emit('newPlayer', { 
+        id: socket.id, 
+        player: players[socket.id] 
+    });
 
-    // Handle movement
+    // When a player moves, update data and tell everyone else
     socket.on('playerMovement', (movementData) => {
         if (players[socket.id]) {
             players[socket.id].x = movementData.x;
-            players[socket.id].y = movementData.y;
-            players[socket.id].angle = movementData.angle;
-            socket.broadcast.emit('playerMoved', players[socket.id]);
+            players[socket.id].z = movementData.z;
+            players[socket.id].rot = movementData.rot;
+            socket.broadcast.emit('playerMoved', {
+                id: socket.id,
+                x: movementData.x,
+                z: movementData.z,
+                rot: movementData.rot
+            });
         }
     });
 
     // Handle disconnect
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+        console.log('Racer disconnected:', socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
