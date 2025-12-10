@@ -1,140 +1,137 @@
-// --- Game Config ---
-const SPEED = 0.5;
-const TURN_SPEED = 0.05;
-const TRACK_SCALE = 80; // Size of the figure 8
+// --- Game Constants ---
+const SPEED = 0.6;
+const TURN_SPEED = 0.06;
+const TRACK_SCALE = 90; // Size of Figure 8
 
-// --- Setup Three.js ---
+// --- Init Three.js ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB); // Sky blue
-scene.fog = new THREE.Fog(0x87CEEB, 10, 150);
+scene.background = new THREE.Color(0xa0c0ff); // Sky color
+scene.fog = new THREE.Fog(0xa0c0ff, 20, 150); // Distance fog
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Lights
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+// --- Lighting ---
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(50, 50, 0);
-scene.add(dirLight);
+const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+sunLight.position.set(50, 100, 50);
+sunLight.castShadow = true;
+scene.add(sunLight);
 
-// --- The Ground ---
-const groundGeo = new THREE.PlaneGeometry(500, 500);
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x228B22, flatShading: true }); // Low poly grass
+// --- Ground ---
+const groundGeo = new THREE.PlaneGeometry(600, 600);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b8c3b, flatShading: true });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// --- Multiplayer Setup ---
+// --- Networking Setup ---
 const socket = io();
-let otherPlayers = {}; // Stores the 3D meshes of opponents
-let myCar; 
+const infoDiv = document.getElementById('info');
+let otherPlayers = {};
+let myCar;
 let myId;
 
-// --- Helper: Create a Low Poly Car ---
-function createCarMesh(colorHex) {
+// --- Helper: Build a Polygon Car ---
+function createPolyCar(colorHex) {
     const carGroup = new THREE.Group();
 
-    // Body (Low poly box)
-    const bodyGeo = new THREE.BoxGeometry(2, 1, 4);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.7;
-    carGroup.add(body);
+    // 1. Chassis (Boxy)
+    const chassisGeo = new THREE.BoxGeometry(2.2, 1, 4.5);
+    const chassisMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
+    const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+    chassis.position.y = 0.8;
+    carGroup.add(chassis);
 
-    // Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8); // 8 segments for low-poly look
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true });
+    // 2. Cabin (Top part)
+    const cabinGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
+    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true }); // Dark windows
+    const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+    cabin.position.set(0, 1.6, -0.2);
+    carGroup.add(cabin);
+
+    // 3. Wheels
+    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 8); // 8-sided = low poly
+    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true });
     
-    const wheels = [
-        { x: 1.1, z: 1.2 }, { x: -1.1, z: 1.2 },
-        { x: 1.1, z: -1.2 }, { x: -1.1, z: -1.2 }
+    const positions = [
+        { x: 1.2, z: 1.4 }, { x: -1.2, z: 1.4 },
+        { x: 1.2, z: -1.4 }, { x: -1.2, z: -1.4 }
     ];
 
-    wheels.forEach(pos => {
-        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(pos.x, 0.5, pos.z);
-        carGroup.add(wheel);
+    positions.forEach(p => {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(p.x, 0.6, p.z);
+        carGroup.add(w);
     });
 
     return carGroup;
 }
 
-// --- Create the Track (Figure 8 Walls) ---
-const wallGeo = new THREE.BoxGeometry(2, 2, 2);
-const wallMat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true });
-const walls = []; // Store for collision
+// --- Track & Walls Generation ---
+const walls = [];
+const wallGeo = new THREE.BoxGeometry(3, 4, 3); // Tall blocky walls
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true }); // Brown rock-like
 
-function createWall(x, z) {
-    const wall = new THREE.Mesh(wallGeo, wallMat);
-    wall.position.set(x, 1, z);
-    scene.add(wall);
-    walls.push(wall); // Add to collision list
+function spawnWall(x, z) {
+    const w = new THREE.Mesh(wallGeo, wallMat);
+    w.position.set(x, 2, z);
+    scene.add(w);
+    walls.push(w);
 }
 
-// Generate Figure 8 using Math (Lemniscate)
-// Parametric equation: x = a * cos(t) / (1 + sin^2(t)), z = a * sin(t) * cos(t) / (1 + sin^2(t))
-const steps = 100;
-const trackWidth = 8; 
-
+// Generate Figure-8 (Lemniscate)
+const steps = 120;
 for (let i = 0; i < steps; i++) {
     const t = (i / steps) * Math.PI * 2;
-    
-    // Calculate center line of track
     const denom = 1 + Math.sin(t) * Math.sin(t);
+    
+    // Track Center Path
     const cx = (TRACK_SCALE * Math.cos(t)) / denom;
     const cz = (TRACK_SCALE * Math.sin(t) * Math.cos(t)) / denom;
 
-    // We need walls on inside and outside. 
-    // Simplified: Just place blocks slightly offset.
-    // A robust way creates normal vectors, but for simplicity, we just place scattered barriers
-    // following the shape.
+    // Walls offset from center
+    // Ideally we calculate normals, but simple scaling works for a Figure 8
+    // Inner/Outer scaling is tricky on the crossing point, so we use fixed offsets
     
-    // Inner Wall (approximate)
-    createWall(cx * 0.85, cz * 0.85); 
-    // Outer Wall (approximate)
-    createWall(cx * 1.15, cz * 1.15);
+    // We create a "cloud" of walls along the path to simulate a track edge
+    // Simple approach: Place two walls perpendicular to the point
+    spawnWall(cx * 1.15 + 4, cz * 1.15); 
+    spawnWall(cx * 0.85 - 4, cz * 0.85);
 }
 
-// --- Socket Events ---
+// --- Socket Handlers ---
 
-// 1. Initial Load of current players
-socket.on('currentPlayers', (players) => {
-    Object.keys(players).forEach((id) => {
+socket.on('currentPlayers', (serverPlayers) => {
+    infoDiv.innerText = "USE ARROW KEYS OR WASD TO DRIVE";
+    Object.keys(serverPlayers).forEach((id) => {
         if (id === socket.id) {
-            // Create My Car
-            myCar = createCarMesh(players[id].color);
-            scene.add(myCar);
             myId = id;
-            
-            // Set camera to follow
-            camera.position.set(0, 10, -15);
-            camera.lookAt(myCar.position);
+            myCar = createPolyCar(serverPlayers[id].color);
+            scene.add(myCar);
         } else {
-            // Create Opponent Car
-            const p = players[id];
-            const opponent = createCarMesh(p.color);
-            opponent.position.set(p.x, 0, p.z);
-            opponent.rotation.y = p.rot;
-            scene.add(opponent);
-            otherPlayers[id] = opponent;
+            const p = serverPlayers[id];
+            const opCar = createPolyCar(p.color);
+            opCar.position.set(p.x, 0, p.z);
+            opCar.rotation.y = p.rot;
+            scene.add(opCar);
+            otherPlayers[id] = opCar;
         }
     });
 });
 
-// 2. New Player Joined
 socket.on('newPlayer', (data) => {
-    const opponent = createCarMesh(data.player.color);
-    opponent.position.set(data.player.x, 0, data.player.z);
-    opponent.rotation.y = data.player.rot;
-    scene.add(opponent);
-    otherPlayers[data.id] = opponent;
+    const opCar = createPolyCar(data.player.color);
+    opCar.position.set(data.player.x, 0, data.player.z);
+    opCar.rotation.y = data.player.rot;
+    scene.add(opCar);
+    otherPlayers[data.id] = opCar;
 });
 
-// 3. Player Moved
 socket.on('playerMoved', (data) => {
     if (otherPlayers[data.id]) {
         otherPlayers[data.id].position.x = data.x;
@@ -143,7 +140,6 @@ socket.on('playerMoved', (data) => {
     }
 });
 
-// 4. Player Left
 socket.on('playerDisconnected', (id) => {
     if (otherPlayers[id]) {
         scene.remove(otherPlayers[id]);
@@ -151,78 +147,88 @@ socket.on('playerDisconnected', (id) => {
     }
 });
 
-// --- Input Handling ---
+// --- Inputs ---
 const keys = { w: false, a: false, s: false, d: false };
 
 window.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = true;
-    if (e.key === "ArrowUp") keys.w = true;
-    if (e.key === "ArrowDown") keys.s = true;
-    if (e.key === "ArrowLeft") keys.a = true;
-    if (e.key === "ArrowRight") keys.d = true;
+    if (e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+    if (e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+    if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+    if (e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
 });
 
 window.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = false;
-    if (e.key === "ArrowUp") keys.w = false;
-    if (e.key === "ArrowDown") keys.s = false;
-    if (e.key === "ArrowLeft") keys.a = false;
-    if (e.key === "ArrowRight") keys.d = false;
+    if (e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+    if (e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+    if (e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+    if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
 });
 
-// --- Collision Detection (Simple Box Check) ---
-function checkCollision(nextX, nextZ) {
+// --- Physics Check ---
+function checkCollision(x, z) {
+    // Create a bounding box for the proposed new position
     const carBox = new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(nextX, 1, nextZ), 
-        new THREE.Vector3(2, 2, 4)
+        new THREE.Vector3(x, 1, z),
+        new THREE.Vector3(2.2, 2, 4.5)
     );
-    
+
+    // Check against every wall block
     for (let wall of walls) {
         const wallBox = new THREE.Box3().setFromObject(wall);
-        if (carBox.intersectsBox(wallBox)) {
-            return true; // Collision detected
-        }
+        if (carBox.intersectsBox(wallBox)) return true;
     }
     return false;
 }
 
-// --- Game Loop ---
+// --- Main Loop ---
 function animate() {
     requestAnimationFrame(animate);
 
     if (myCar) {
-        let moveStep = 0;
-        let rotStep = 0;
+        let move = 0;
+        let turn = 0;
 
-        // Calculate potential new position
-        if (keys.w) moveStep = SPEED;
-        if (keys.s) moveStep = -SPEED;
-        if (keys.a) rotStep = TURN_SPEED;
-        if (keys.d) rotStep = -TURN_SPEED;
+        if (keys.w) move = SPEED;
+        if (keys.s) move = -SPEED;
+        if (keys.a) turn = TURN_SPEED;
+        if (keys.d) turn = -TURN_SPEED;
 
-        // Apply Rotation
-        myCar.rotation.y += rotStep;
+        // Apply rotation
+        myCar.rotation.y += turn;
 
-        // Calculate forward vector based on rotation
-        const nextX = myCar.position.x + Math.sin(myCar.rotation.y) * moveStep;
-        const nextZ = myCar.position.z + Math.cos(myCar.rotation.y) * moveStep;
+        // Calculate velocity vector
+        const dx = Math.sin(myCar.rotation.y) * move;
+        const dz = Math.cos(myCar.rotation.y) * move;
 
-        // Move only if no collision
+        // Predict next position
+        const nextX = myCar.position.x + dx;
+        const nextZ = myCar.position.z + dz;
+
+        // Move if no wall hit
         if (!checkCollision(nextX, nextZ)) {
             myCar.position.x = nextX;
             myCar.position.z = nextZ;
+        } else {
+            // Simple bounce effect (optional, keeps you from sticking)
+            myCar.position.x -= dx * 0.5;
+            myCar.position.z -= dz * 0.5;
         }
 
-        // Camera Follow
-        const relativeCameraOffset = new THREE.Vector3(0, 8, -15);
-        const cameraOffset = relativeCameraOffset.applyMatrix4(myCar.matrixWorld);
-        camera.position.lerp(cameraOffset, 0.1);
+        // Camera Logic (Smooth follow)
+        // We place the camera "behind" the car based on car's rotation
+        const camDist = 18;
+        const camHeight = 10;
+        
+        const targetX = myCar.position.x - Math.sin(myCar.rotation.y) * camDist;
+        const targetZ = myCar.position.z - Math.cos(myCar.rotation.y) * camDist;
+
+        camera.position.x += (targetX - camera.position.x) * 0.1;
+        camera.position.z += (targetZ - camera.position.z) * 0.1;
+        camera.position.y = myCar.position.y + camHeight;
         camera.lookAt(myCar.position);
 
-        // Send Update to Server (throttled slightly by frame rate is okay for demo)
-        if (moveStep !== 0 || rotStep !== 0) {
+        // Network Update
+        if (move !== 0 || turn !== 0) {
             socket.emit('playerMovement', {
                 x: myCar.position.x,
                 z: myCar.position.z,
@@ -234,11 +240,11 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-animate();
-
-// Handle Window Resize
+// Resize Handler
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+animate();
