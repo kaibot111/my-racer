@@ -1,97 +1,56 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require("socket.io");
-const path = require('path');
-
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
 
-// Serve the game file
+// CHANGE: Serve files from the root directory (__)
+app.use(express.static(__dirname));
+
+// Route for the homepage
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(__dirname + '/index.html');
 });
 
-// --- SERVER SIDE PHYSICS CONSTANTS ---
-const GAME_TICK_RATE = 60; // Calculate 60 times per second
-const MAX_SPEED = 1.2;
-const ACCELERATION = 0.02;
-const FRICTION = 0.98;
-const TURN_SPEED = 0.05;
-
 // Game State
-let players = {};
+const players = {};
 
 io.on('connection', (socket) => {
-    console.log('New racer joined:', socket.id);
+    console.log('User connected:', socket.id);
 
-    // Create player with default values
-    players[socket.id] = { 
-        x: (Math.random() * 10) - 5, // Random spawn offset
-        z: (Math.random() * 10) - 5, 
-        angle: Math.PI, 
-        speed: 0,
-        color: Math.random() * 0xffffff,
-        inputs: { up: false, down: false, left: false, right: false }
+    // Create a new player
+    players[socket.id] = {
+        id: socket.id,
+        x: 400,
+        y: 300,
+        angle: 0,
+        color: `hsl(${Math.random() * 360}, 70%, 50%)`,
     };
 
-    // Send the initial state to the new player
-    socket.emit('init', { id: socket.id, players: players });
+    // Send current players to the new connection
+    socket.emit('currentPlayers', players);
 
-    // Handle Input from Clients
-    socket.on('input', (data) => {
+    // Broadcast new player to others
+    socket.broadcast.emit('newPlayer', players[socket.id]);
+
+    // Handle movement
+    socket.on('playerMovement', (movementData) => {
         if (players[socket.id]) {
-            players[socket.id].inputs = data;
+            players[socket.id].x = movementData.x;
+            players[socket.id].y = movementData.y;
+            players[socket.id].angle = movementData.angle;
+            socket.broadcast.emit('playerMoved', players[socket.id]);
         }
     });
 
+    // Handle disconnect
     socket.on('disconnect', () => {
-        console.log('Racer left:', socket.id);
+        console.log('User disconnected:', socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
 });
 
-// --- THE GAME LOOP ---
-// This runs 60 times a second to calculate movement for EVERYONE
-setInterval(() => {
-    const pack = {}; // Data packet to send to clients
-
-    for (const id in players) {
-        const p = players[id];
-        const input = p.inputs;
-
-        // 1. Calculate Speed
-        if (input.up) p.speed += ACCELERATION;
-        if (input.down) p.speed -= ACCELERATION;
-        p.speed *= FRICTION;
-
-        // 2. Calculate Turning
-        if (Math.abs(p.speed) > 0.01) {
-            const dir = p.speed > 0 ? 1 : -1;
-            if (input.left) p.angle += TURN_SPEED * dir;
-            if (input.right) p.angle -= TURN_SPEED * dir;
-        }
-
-        // 3. Update Position (Math.sin/cos)
-        p.x += Math.sin(p.angle) * p.speed;
-        p.z += Math.cos(p.angle) * p.speed;
-
-        // Add to packet
-        pack[id] = {
-            x: p.x,
-            z: p.z,
-            angle: p.angle,
-            color: p.color
-        };
-    }
-
-    // Send the calculated positions to EVERYONE
-    io.emit('stateUpdate', pack);
-
-}, 1000 / GAME_TICK_RATE);
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+http.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
