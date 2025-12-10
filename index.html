@@ -145,6 +145,14 @@
         document.getElementById('player-count-display').innerText = total;
         document.getElementById('menu-player-count').innerText = total;
     }
+
+    // Helper to enable start button even if offline
+    function enableOfflineMode(reason) {
+        console.log("Entering Offline Mode: " + reason);
+        document.getElementById('status-msg').innerText = "OFFLINE MODE (Single Player)";
+        document.getElementById('status-msg').style.color = "#ff9800"; // Orange warning
+        document.getElementById('start-btn').style.display = 'block';
+    }
     
     // --- Connect Immediately ---
     try {
@@ -154,12 +162,13 @@
             socket.on('connect', () => {
                 console.log("Connected to server!");
                 document.getElementById('status-msg').innerText = "ONLINE - READY TO RACE";
+                document.getElementById('status-msg').style.color = "#00e676";
                 document.getElementById('start-btn').style.display = 'block';
                 myId = socket.id;
             });
 
             socket.on('connect_error', () => {
-                 document.getElementById('status-msg').innerText = "Connection Failed: Server not found";
+                 enableOfflineMode("Server not found");
             });
 
             socket.on('currentPlayers', (players) => {
@@ -189,11 +198,11 @@
                 }
             });
         } else {
-             document.getElementById('status-msg').innerText = "Socket.io library failed to load";
+             enableOfflineMode("Socket.io library failed to load");
         }
     } catch(e) {
         console.error(e);
-        document.getElementById('status-msg').innerText = "Connection Failed";
+        enableOfflineMode("Connection Error");
     }
 
     // --- 3D Game Engine (Three.js) ---
@@ -399,6 +408,9 @@
         currentLap = 1; nextCheckpoint = 0; startTime = Date.now();
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('game-over').classList.add('hidden');
+        
+        // FOCUS FIX: Force focus to window so keyboard works immediately
+        window.focus();
     }
     function endGame() {
         gameState = 'FINISHED';
