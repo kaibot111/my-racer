@@ -1,12 +1,11 @@
 // --- Game Constants ---
-const SPEED = 0.9;         // Slightly faster for the bigger track
-const TURN_SPEED = 0.04;
-const TRACK_SCALE = 200;   // 150% Larger Track (Was 90)
+const SPEED = 0.8;
+const TURN_SPEED = 0.05;
 
 // --- Init Three.js ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xa0c0ff);
-scene.fog = new THREE.Fog(0xa0c0ff, 20, 250); // Increased fog distance
+scene.background = new THREE.Color(0x1a0b2e); // Night City Sky (Dark Purple/Blue)
+scene.fog = new THREE.Fog(0x1a0b2e, 20, 300);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -14,17 +13,22 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // --- Lighting ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
 scene.add(ambientLight);
-const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-sunLight.position.set(100, 200, 100);
-sunLight.castShadow = true;
-scene.add(sunLight);
 
-// --- Ground ---
-// Made ground much larger to accommodate new track size
+// City Lights (Directional)
+const cityLight = new THREE.DirectionalLight(0xffaa00, 0.8); // Warm street light feel
+cityLight.position.set(50, 100, 50);
+cityLight.castShadow = true;
+scene.add(cityLight);
+
+const moonLight = new THREE.DirectionalLight(0xaaccff, 0.5); // Cool blue moonlight
+moonLight.position.set(-50, 100, -50);
+scene.add(moonLight);
+
+// --- Ground (Asphalt) ---
 const groundGeo = new THREE.PlaneGeometry(2000, 2000); 
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b8c3b, flatShading: true });
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222, flatShading: true }); // Dark Grey
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
@@ -49,14 +53,14 @@ function createPolyCar(colorHex) {
 
     // Cabin
     const cabinGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
-    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true }); 
+    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true }); // Tinted windows
     const cabin = new THREE.Mesh(cabinGeo, cabinMat);
     cabin.position.set(0, 1.6, -0.2);
     carGroup.add(cabin);
 
     // Wheels
     const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 8); 
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true });
+    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x000000, flatShading: true });
     
     const positions = [
         { x: 1.2, z: 1.4 }, { x: -1.2, z: 1.4 },
@@ -73,46 +77,48 @@ function createPolyCar(colorHex) {
     return carGroup;
 }
 
-// --- Track & Walls Generation ---
-const walls = [];
-const wallGeo = new THREE.BoxGeometry(4, 5, 4); // Slightly larger walls
-const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true }); 
+// --- CITY GENERATION ---
+const walls = []; // We still call them 'walls' for collision logic
+const buildingCount = 20;
 
-function spawnWall(x, z) {
-    const w = new THREE.Mesh(wallGeo, wallMat);
-    w.position.set(x, 2.5, z);
-    scene.add(w);
-    walls.push(w);
+function createBuilding(x, z, width, depth, height) {
+    // Random Building Color (Greys, Blues, Slight purples)
+    const grayScale = Math.random() * 0.5 + 0.1;
+    const buildingColor = new THREE.Color().setRGB(grayScale, grayScale, grayScale + 0.1);
+
+    const geo = new THREE.BoxGeometry(width, height, depth);
+    const mat = new THREE.MeshStandardMaterial({ color: buildingColor, flatShading: true });
+    
+    const building = new THREE.Mesh(geo, mat);
+    // Position y is half height so it sits on ground
+    building.position.set(x, height / 2, z);
+    
+    scene.add(building);
+    walls.push(building); // Add to collision list
 }
 
-// Generate Figure-8
-// Increased steps to 400 to prevent gaps in walls on the large track
-const steps = 400; 
+// Generate 20 Random Buildings
+for (let i = 0; i < buildingCount; i++) {
+    // Random Position (-400 to 400)
+    const bx = (Math.random() * 800) - 400;
+    const bz = (Math.random() * 800) - 400;
 
-for (let i = 0; i < steps; i++) {
-    const t = (i / steps) * Math.PI * 2;
-    const denom = 1 + Math.sin(t) * Math.sin(t);
-    
-    // Track Center Path
-    const cx = (TRACK_SCALE * Math.cos(t)) / denom;
-    const cz = (TRACK_SCALE * Math.sin(t) * Math.cos(t)) / denom;
+    // Random Size
+    const bWidth = 20 + Math.random() * 40;  // 20 to 60 wide
+    const bDepth = 20 + Math.random() * 40;  // 20 to 60 deep
+    const bHeight = 40 + Math.random() * 100; // 40 to 140 tall (Skyscrapers!)
 
-    // Wall Offsets
-    // Because the track is bigger, we need wider lanes (factor 1.10 instead of 1.15)
-    // Fixed numeric offset helps keep width consistent
-    spawnWall(cx * 1.08 + 6, cz * 1.08); 
-    spawnWall(cx * 0.92 - 6, cz * 0.92);
+    createBuilding(bx, bz, bWidth, bDepth, bHeight);
 }
 
 // --- Socket Handlers ---
 
 socket.on('currentPlayers', (serverPlayers) => {
-    infoDiv.innerText = "USE ARROW KEYS OR WASD TO DRIVE";
+    infoDiv.innerText = "EXPLORE THE CITY - ARROW KEYS / WASD";
     Object.keys(serverPlayers).forEach((id) => {
         if (id === socket.id) {
             myId = id;
             myCar = createPolyCar(serverPlayers[id].color);
-            // Server now decides where we spawn!
             myCar.position.set(serverPlayers[id].x, 0, serverPlayers[id].z);
             myCar.rotation.y = serverPlayers[id].rot;
             scene.add(myCar);
@@ -212,8 +218,8 @@ function animate() {
         }
 
         // Camera Logic
-        const camDist = 25; // Further back for bigger car/track feel
-        const camHeight = 12;
+        const camDist = 20; 
+        const camHeight = 8;
         
         const targetX = myCar.position.x - Math.sin(myCar.rotation.y) * camDist;
         const targetZ = myCar.position.z - Math.cos(myCar.rotation.y) * camDist;
