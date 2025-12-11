@@ -1,14 +1,14 @@
 // --- Game Constants ---
-const SPEED = 0.6;
-const TURN_SPEED = 0.06;
-const TRACK_SCALE = 90; // Size of Figure 8
+const SPEED = 0.9;         // Slightly faster for the bigger track
+const TURN_SPEED = 0.04;
+const TRACK_SCALE = 200;   // 150% Larger Track (Was 90)
 
 // --- Init Three.js ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xa0c0ff); // Sky color
-scene.fog = new THREE.Fog(0xa0c0ff, 20, 150); // Distance fog
+scene.background = new THREE.Color(0xa0c0ff);
+scene.fog = new THREE.Fog(0xa0c0ff, 20, 250); // Increased fog distance
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -17,12 +17,13 @@ document.body.appendChild(renderer.domElement);
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
 const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-sunLight.position.set(50, 100, 50);
+sunLight.position.set(100, 200, 100);
 sunLight.castShadow = true;
 scene.add(sunLight);
 
 // --- Ground ---
-const groundGeo = new THREE.PlaneGeometry(600, 600);
+// Made ground much larger to accommodate new track size
+const groundGeo = new THREE.PlaneGeometry(2000, 2000); 
 const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b8c3b, flatShading: true });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
@@ -39,22 +40,22 @@ let myId;
 function createPolyCar(colorHex) {
     const carGroup = new THREE.Group();
 
-    // 1. Chassis (Boxy)
+    // Chassis
     const chassisGeo = new THREE.BoxGeometry(2.2, 1, 4.5);
     const chassisMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
     const chassis = new THREE.Mesh(chassisGeo, chassisMat);
     chassis.position.y = 0.8;
     carGroup.add(chassis);
 
-    // 2. Cabin (Top part)
+    // Cabin
     const cabinGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
-    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true }); // Dark windows
+    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true }); 
     const cabin = new THREE.Mesh(cabinGeo, cabinMat);
     cabin.position.set(0, 1.6, -0.2);
     carGroup.add(cabin);
 
-    // 3. Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 8); // 8-sided = low poly
+    // Wheels
+    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 8); 
     const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true });
     
     const positions = [
@@ -74,18 +75,20 @@ function createPolyCar(colorHex) {
 
 // --- Track & Walls Generation ---
 const walls = [];
-const wallGeo = new THREE.BoxGeometry(3, 4, 3); // Tall blocky walls
-const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true }); // Brown rock-like
+const wallGeo = new THREE.BoxGeometry(4, 5, 4); // Slightly larger walls
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true }); 
 
 function spawnWall(x, z) {
     const w = new THREE.Mesh(wallGeo, wallMat);
-    w.position.set(x, 2, z);
+    w.position.set(x, 2.5, z);
     scene.add(w);
     walls.push(w);
 }
 
-// Generate Figure-8 (Lemniscate)
-const steps = 120;
+// Generate Figure-8
+// Increased steps to 400 to prevent gaps in walls on the large track
+const steps = 400; 
+
 for (let i = 0; i < steps; i++) {
     const t = (i / steps) * Math.PI * 2;
     const denom = 1 + Math.sin(t) * Math.sin(t);
@@ -94,14 +97,11 @@ for (let i = 0; i < steps; i++) {
     const cx = (TRACK_SCALE * Math.cos(t)) / denom;
     const cz = (TRACK_SCALE * Math.sin(t) * Math.cos(t)) / denom;
 
-    // Walls offset from center
-    // Ideally we calculate normals, but simple scaling works for a Figure 8
-    // Inner/Outer scaling is tricky on the crossing point, so we use fixed offsets
-    
-    // We create a "cloud" of walls along the path to simulate a track edge
-    // Simple approach: Place two walls perpendicular to the point
-    spawnWall(cx * 1.15 + 4, cz * 1.15); 
-    spawnWall(cx * 0.85 - 4, cz * 0.85);
+    // Wall Offsets
+    // Because the track is bigger, we need wider lanes (factor 1.10 instead of 1.15)
+    // Fixed numeric offset helps keep width consistent
+    spawnWall(cx * 1.08 + 6, cz * 1.08); 
+    spawnWall(cx * 0.92 - 6, cz * 0.92);
 }
 
 // --- Socket Handlers ---
@@ -112,6 +112,9 @@ socket.on('currentPlayers', (serverPlayers) => {
         if (id === socket.id) {
             myId = id;
             myCar = createPolyCar(serverPlayers[id].color);
+            // Server now decides where we spawn!
+            myCar.position.set(serverPlayers[id].x, 0, serverPlayers[id].z);
+            myCar.rotation.y = serverPlayers[id].rot;
             scene.add(myCar);
         } else {
             const p = serverPlayers[id];
@@ -166,13 +169,11 @@ window.addEventListener('keyup', (e) => {
 
 // --- Physics Check ---
 function checkCollision(x, z) {
-    // Create a bounding box for the proposed new position
     const carBox = new THREE.Box3().setFromCenterAndSize(
         new THREE.Vector3(x, 1, z),
         new THREE.Vector3(2.2, 2, 4.5)
     );
 
-    // Check against every wall block
     for (let wall of walls) {
         const wallBox = new THREE.Box3().setFromObject(wall);
         if (carBox.intersectsBox(wallBox)) return true;
@@ -193,31 +194,26 @@ function animate() {
         if (keys.a) turn = TURN_SPEED;
         if (keys.d) turn = -TURN_SPEED;
 
-        // Apply rotation
         myCar.rotation.y += turn;
 
-        // Calculate velocity vector
         const dx = Math.sin(myCar.rotation.y) * move;
         const dz = Math.cos(myCar.rotation.y) * move;
 
-        // Predict next position
         const nextX = myCar.position.x + dx;
         const nextZ = myCar.position.z + dz;
 
-        // Move if no wall hit
         if (!checkCollision(nextX, nextZ)) {
             myCar.position.x = nextX;
             myCar.position.z = nextZ;
         } else {
-            // Simple bounce effect (optional, keeps you from sticking)
+            // Bounce
             myCar.position.x -= dx * 0.5;
             myCar.position.z -= dz * 0.5;
         }
 
-        // Camera Logic (Smooth follow)
-        // We place the camera "behind" the car based on car's rotation
-        const camDist = 18;
-        const camHeight = 10;
+        // Camera Logic
+        const camDist = 25; // Further back for bigger car/track feel
+        const camHeight = 12;
         
         const targetX = myCar.position.x - Math.sin(myCar.rotation.y) * camDist;
         const targetZ = myCar.position.z - Math.cos(myCar.rotation.y) * camDist;
@@ -227,7 +223,6 @@ function animate() {
         camera.position.y = myCar.position.y + camHeight;
         camera.lookAt(myCar.position);
 
-        // Network Update
         if (move !== 0 || turn !== 0) {
             socket.emit('playerMovement', {
                 x: myCar.position.x,
@@ -240,7 +235,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// Resize Handler
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
