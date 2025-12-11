@@ -6,28 +6,18 @@ const io = require('socket.io')(http);
 // Serve ALL files in the current folder
 app.use(express.static(__dirname));
 
-// --- Multiplayer Logic ---
 let players = {};
-const TRACK_SCALE = 200; // Must match game.js
 
 io.on('connection', (socket) => {
-    console.log('New racer joined:', socket.id);
+    console.log('New driver connected:', socket.id);
 
-    // --- NEW: Calculate random spawn ON THE TRACK ---
-    // We use the same math as the track generation to find a safe spot
-    const t = Math.random() * Math.PI * 2;
-    const denom = 1 + Math.sin(t) * Math.sin(t);
-    const spawnX = (TRACK_SCALE * Math.cos(t)) / denom;
-    const spawnZ = (TRACK_SCALE * Math.sin(t) * Math.cos(t)) / denom;
-
-    // Calculate facing rotation (look ahead on track)
-    // A simple approximation is acceptable for spawning
-    const spawnRot = -t + Math.PI/2; 
-
+    // --- CITY SPAWN LOGIC ---
+    // Spawn randomly in a large area (between -150 and 150)
+    // We avoid the absolute edges so you don't fall off immediately
     players[socket.id] = {
-        x: spawnX, 
-        z: spawnZ, 
-        rot: spawnRot, 
+        x: Math.random() * 300 - 150, 
+        z: Math.random() * 300 - 150, 
+        rot: Math.random() * Math.PI * 2, 
         color: '#' + Math.floor(Math.random()*16777215).toString(16)
     };
 
@@ -54,7 +44,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('Racer left:', socket.id);
+        console.log('Driver left:', socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
