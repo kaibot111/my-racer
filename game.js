@@ -4,8 +4,8 @@ const TURN_SPEED = 0.05;
 
 // --- Init Three.js ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a0b2e); // Night City Sky (Dark Purple/Blue)
-scene.fog = new THREE.Fog(0x1a0b2e, 20, 300);
+scene.background = new THREE.Color(0x1a0b2e); // Cyber-city background
+scene.fog = new THREE.Fog(0x1a0b2e, 10, 400);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -16,19 +16,14 @@ document.body.appendChild(renderer.domElement);
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
 scene.add(ambientLight);
 
-// City Lights (Directional)
-const cityLight = new THREE.DirectionalLight(0xffaa00, 0.8); // Warm street light feel
-cityLight.position.set(50, 100, 50);
+const cityLight = new THREE.DirectionalLight(0xffaa00, 0.8);
+cityLight.position.set(100, 200, 50);
 cityLight.castShadow = true;
 scene.add(cityLight);
 
-const moonLight = new THREE.DirectionalLight(0xaaccff, 0.5); // Cool blue moonlight
-moonLight.position.set(-50, 100, -50);
-scene.add(moonLight);
-
-// --- Ground (Asphalt) ---
-const groundGeo = new THREE.PlaneGeometry(2000, 2000); 
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222, flatShading: true }); // Dark Grey
+// --- Ground ---
+const groundGeo = new THREE.PlaneGeometry(3000, 3000); 
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x111111, flatShading: true }); // Very dark asphalt
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
@@ -53,7 +48,7 @@ function createPolyCar(colorHex) {
 
     // Cabin
     const cabinGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
-    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true }); // Tinted windows
+    const cabinMat = new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true }); 
     const cabin = new THREE.Mesh(cabinGeo, cabinMat);
     cabin.position.set(0, 1.6, -0.2);
     carGroup.add(cabin);
@@ -77,44 +72,38 @@ function createPolyCar(colorHex) {
     return carGroup;
 }
 
-// --- CITY GENERATION ---
-const walls = []; // We still call them 'walls' for collision logic
-const buildingCount = 20;
+// --- CITY GENERATION (RECEIVED FROM SERVER) ---
+const walls = []; // Collision array
 
-function createBuilding(x, z, width, depth, height) {
-    // Random Building Color (Greys, Blues, Slight purples)
-    const grayScale = Math.random() * 0.5 + 0.1;
-    const buildingColor = new THREE.Color().setRGB(grayScale, grayScale, grayScale + 0.1);
-
-    const geo = new THREE.BoxGeometry(width, height, depth);
-    const mat = new THREE.MeshStandardMaterial({ color: buildingColor, flatShading: true });
-    
+function createBuilding(data) {
+    const geo = new THREE.BoxGeometry(data.width, data.height, data.depth);
+    const mat = new THREE.MeshStandardMaterial({ color: data.color, flatShading: true });
     const building = new THREE.Mesh(geo, mat);
-    // Position y is half height so it sits on ground
-    building.position.set(x, height / 2, z);
+    
+    // Y is half height so it sits on ground
+    building.position.set(data.x, data.height / 2, data.z);
     
     scene.add(building);
-    walls.push(building); // Add to collision list
-}
-
-// Generate 20 Random Buildings
-for (let i = 0; i < buildingCount; i++) {
-    // Random Position (-400 to 400)
-    const bx = (Math.random() * 800) - 400;
-    const bz = (Math.random() * 800) - 400;
-
-    // Random Size
-    const bWidth = 20 + Math.random() * 40;  // 20 to 60 wide
-    const bDepth = 20 + Math.random() * 40;  // 20 to 60 deep
-    const bHeight = 40 + Math.random() * 100; // 40 to 140 tall (Skyscrapers!)
-
-    createBuilding(bx, bz, bWidth, bDepth, bHeight);
+    walls.push(building); 
 }
 
 // --- Socket Handlers ---
 
+// 1. Receive the Map FIRST
+socket.on('cityMap', (mapData) => {
+    // Clear existing walls if any (prevents duplicates on reconnect)
+    walls.forEach(w => scene.remove(w));
+    walls.length = 0;
+
+    // Build the city
+    mapData.forEach(buildingData => {
+        createBuilding(buildingData);
+    });
+});
+
+// 2. Receive Players
 socket.on('currentPlayers', (serverPlayers) => {
-    infoDiv.innerText = "EXPLORE THE CITY - ARROW KEYS / WASD";
+    infoDiv.innerText = "DRIVE AROUND THE GRID CITY";
     Object.keys(serverPlayers).forEach((id) => {
         if (id === socket.id) {
             myId = id;
