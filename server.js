@@ -6,27 +6,31 @@ const io = require('socket.io')(http);
 // Serve ALL files in the current folder
 app.use(express.static(__dirname));
 
-// --- 1. GENERATE THE SHARED CITY ON THE SERVER ---
+// --- 1. GENERATE THE SHARED CITY ---
 const cityLayout = [];
 const ROWS = 20;
 const COLS = 20;
-const BLOCK_SIZE = 80; // Space between building centers
+const BLOCK_SIZE = 80; 
 
-// Generate the map ONCE so it's the same for everyone
 for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-        // Calculate grid position, centered around 0,0
-        const x = (r * BLOCK_SIZE) - ((ROWS * BLOCK_SIZE) / 2);
-        const z = (c * BLOCK_SIZE) - ((COLS * BLOCK_SIZE) / 2);
+        
+        // CHECK: Is this the center? 
+        // We skip rows/cols 9 and 10 to make a 2x2 empty plaza at (0,0)
+        if ((r === 9 || r === 10) && (c === 9 || c === 10)) {
+            continue; // Do not build here!
+        }
+
+        const x = (r * BLOCK_SIZE) - ((ROWS * BLOCK_SIZE) / 2) + (BLOCK_SIZE / 2);
+        const z = (c * BLOCK_SIZE) - ((COLS * BLOCK_SIZE) / 2) + (BLOCK_SIZE / 2);
 
         // Random Dimensions
-        const width = 20 + Math.random() * 40;  // 20 to 60
-        const depth = 20 + Math.random() * 40;  // 20 to 60
-        const height = 30 + Math.random() * 120; // 30 to 150 (Varied heights)
+        const width = 20 + Math.random() * 50; 
+        const depth = 20 + Math.random() * 50;
+        const height = 30 + Math.random() * 120;
 
-        // Random Color (store as hex string)
+        // Random Color
         const grayScale = Math.random() * 0.5 + 0.1;
-        // Convert RGB to Hex Integer
         const rVal = Math.floor(grayScale * 255);
         const gVal = Math.floor(grayScale * 255);
         const bVal = Math.floor((grayScale + 0.1) * 255);
@@ -42,22 +46,16 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Driver connected:', socket.id);
 
-    // Send the Map to the new player immediately
+    // Send the Map
     socket.emit('cityMap', cityLayout);
 
-    // Spawn player in a "Street" (Offset by half block size)
-    // This prevents spawning inside a building
-    const randomRow = Math.floor(Math.random() * ROWS);
-    const randomCol = Math.floor(Math.random() * COLS);
-    
-    // Calculate spawn coordinates (in the gap between buildings)
-    const spawnX = (randomRow * BLOCK_SIZE) - ((ROWS * BLOCK_SIZE) / 2) + (BLOCK_SIZE / 2);
-    const spawnZ = (randomCol * BLOCK_SIZE) - ((COLS * BLOCK_SIZE) / 2) + (BLOCK_SIZE / 2);
-
+    // --- SPAWN AT (0,0) ---
+    // We add a tiny random offset (0.1) just so textures don't flicker 
+    // if two people join at the exact same millisecond.
     players[socket.id] = {
-        x: spawnX, 
-        z: spawnZ, 
-        rot: 0, 
+        x: 0, 
+        z: 0, 
+        rot: 0, // Face North
         color: '#' + Math.floor(Math.random()*16777215).toString(16)
     };
 
@@ -84,7 +82,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('Driver left:', socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
