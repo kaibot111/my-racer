@@ -1,78 +1,101 @@
 // --- Game Constants ---
-// We use "Units Per Second" now instead of "Units Per Frame" for smoothness
-const MOVEMENT_SPEED = 50.0; 
-const ROTATION_SPEED = 3.0; 
-const LERP_FACTOR = 10.0; // How fast remote cars smooth to their target (Higher = snappier, Lower = smoother)
+const MOVEMENT_SPEED = 60.0; // Slightly faster for future vibe
+const ROTATION_SPEED = 3.5; 
+const LERP_FACTOR = 10.0; 
+
+// Game State
+let gameActive = false;
+let gameMode = 'arcade';
 
 // --- Init Three.js ---
 const scene = new THREE.Scene();
-const clock = new THREE.Clock(); // Tracks time between frames
+// Add heavy fog for that endless cyberpunk city look
+scene.fog = new THREE.FogExp2(0x050505, 0.0025); 
+scene.background = new THREE.Color(0x050505);
 
-// --- 1. FIXED SKY SPHERE ---
-const loader = new THREE.TextureLoader();
-const skyGeo = new THREE.SphereGeometry(1500, 32, 32);
-const skyMat = new THREE.MeshBasicMaterial({ 
-    map: loader.load('sky.jpg'), 
-    side: THREE.BackSide 
-});
-const skySphere = new THREE.Mesh(skyGeo, skyMat);
-scene.add(skySphere);
+const clock = new THREE.Clock(); 
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+// Enable shadow maps for better depth
+renderer.shadowMap.enabled = true; 
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// --- Lighting ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+// --- Futuristic Lighting ---
+const ambientLight = new THREE.AmbientLight(0x404040, 0.5); // Dark ambient
 scene.add(ambientLight);
 
-const cityLight = new THREE.DirectionalLight(0xffaa00, 0.8);
+// The "Sun" is now a distant city glow
+const cityLight = new THREE.DirectionalLight(0x00ffff, 0.8);
 cityLight.position.set(100, 200, 50);
 cityLight.castShadow = true;
+cityLight.shadow.mapSize.width = 2048;
+cityLight.shadow.mapSize.height = 2048;
 scene.add(cityLight);
 
-// --- Ground ---
-const groundGeo = new THREE.PlaneGeometry(3000, 3000); 
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x050505, flatShading: true });
+// Add a secondary neon pink light from the opposite side
+const neonLight = new THREE.PointLight(0xff00ff, 1, 1000);
+neonLight.position.set(-100, 50, -100);
+scene.add(neonLight);
+
+// --- Ground (Reflective Wet Asphalt) ---
+const groundGeo = new THREE.PlaneGeometry(5000, 5000); 
+const groundMat = new THREE.MeshStandardMaterial({ 
+    color: 0x050505, 
+    roughness: 0.1, // Very smooth/wet
+    metalness: 0.5
+});
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
 scene.add(ground);
 
 // --- Networking Setup ---
 const socket = io();
 const infoDiv = document.getElementById('info');
 
-// We now store state objects: { mesh: THREE.Group, targetX: number, targetZ: number, targetRot: number }
+// State objects
 let otherPlayers = {}; 
 let aiCarMeshes = {}; 
-
 let myCar;
 let myId;
 let walls = []; 
 
-// --- Helper: Build a Polygon Car ---
+// --- Helper: Build a Neon Polygon Car ---
 function createPolyCar(colorHex, isAI = false) {
     const carGroup = new THREE.Group();
 
+    // Emissive material for that "Tron" glow
+    const bodyMat = new THREE.MeshStandardMaterial({ 
+        color: colorHex, 
+        emissive: colorHex,
+        emissiveIntensity: 0.4,
+        roughness: 0.2,
+        metalness: 0.8
+    });
+    
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
+
     // Chassis
     const chassisGeo = new THREE.BoxGeometry(2.2, 1, 4.5);
-    const chassisMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
-    const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+    const chassis = new THREE.Mesh(chassisGeo, bodyMat);
     chassis.position.y = 0.8;
+    chassis.castShadow = true;
     carGroup.add(chassis);
 
-    // Cabin
+    // Cabin (Dark glass)
     const cabinGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
-    const cabinMat = new THREE.MeshLambertMaterial({ color: isAI ? 0x004400 : 0x333333, flatShading: true }); 
-    const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+    const cabin = new THREE.Mesh(cabinGeo, darkMat);
     cabin.position.set(0, 1.6, -0.2);
     carGroup.add(cabin);
 
-    // Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 8); 
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x000000, flatShading: true });
-    
+    // Wheels (Glowing rims)
+    const wheelGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.5, 16); 
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const rimMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // Bright rims
+
     const positions = [
         { x: 1.2, z: 1.4 }, { x: -1.2, z: 1.4 },
         { x: 1.2, z: -1.4 }, { x: -1.2, z: -1.4 }
@@ -87,22 +110,34 @@ function createPolyCar(colorHex, isAI = false) {
 
     if (isAI) {
         carGroup.scale.set(3, 3, 3); 
+        // AI cars get a specific "Enemy" color (Red glow)
+        bodyMat.color.setHex(0xff0000);
+        bodyMat.emissive.setHex(0x550000);
     }
 
     return carGroup;
 }
 
 // --- CITY & ROAD GENERATION ---
+
+// Helper for Neon Edges
+function addNeonEdges(mesh, color) {
+    const edges = new THREE.EdgesGeometry(mesh.geometry);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: color }));
+    mesh.add(line);
+}
+
 function createFence(rows, cols, blockSize) {
     const totalWidth = rows * blockSize;
     const totalDepth = cols * blockSize;
-    const fenceHeight = 15;
+    const fenceHeight = 40; // Higher fences
     
+    // Grid wall material
     const fenceMat = new THREE.MeshBasicMaterial({ 
-        color: 0x555555, 
+        color: 0x00ffff, 
         wireframe: true,
         transparent: true,
-        opacity: 0.8
+        opacity: 0.3
     });
 
     const halfW = totalWidth / 2;
@@ -116,7 +151,7 @@ function createFence(rows, cols, blockSize) {
     ];
 
     fenceConfigs.forEach(cfg => {
-        const geo = new THREE.BoxGeometry(cfg.w, fenceHeight, cfg.d, Math.floor(cfg.w/20), 2, Math.floor(cfg.d/20));
+        const geo = new THREE.BoxGeometry(cfg.w, fenceHeight, cfg.d);
         const fence = new THREE.Mesh(geo, fenceMat);
         fence.position.set(cfg.x, fenceHeight/2, cfg.z);
         scene.add(fence);
@@ -128,17 +163,23 @@ function createRoads(rows, cols, blockSize) {
     const roadWidth = 14; 
     const totalWidth = rows * blockSize;
     const totalDepth = cols * blockSize;
-    const roadMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); 
+    
+    // Dark road with no texture, just reflection
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.1 }); 
+    // Glowing grid lines
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0x00aaff }); 
 
     for(let c = 0; c < cols; c++) {
         const xPos = (c * blockSize) - (totalWidth / 2);
+        // Main Road
         const roadGeo = new THREE.PlaneGeometry(roadWidth, totalDepth);
         const road = new THREE.Mesh(roadGeo, roadMat);
         road.rotation.x = -Math.PI/2;
         road.position.set(xPos, 0.05, 0); 
+        road.receiveShadow = true;
         scene.add(road);
 
+        // Center Line (Cyan Glow)
         for(let i=0; i<rows; i++) {
              const zPos = (i * blockSize) - (totalDepth / 2);
              const lineGeo = new THREE.PlaneGeometry(0.5, blockSize * 0.6);
@@ -155,6 +196,7 @@ function createRoads(rows, cols, blockSize) {
         const road = new THREE.Mesh(roadGeo, roadMat);
         road.rotation.x = -Math.PI/2;
         road.position.set(0, 0.06, zPos); 
+        road.receiveShadow = true;
         scene.add(road);
 
         for(let i=0; i<cols; i++) {
@@ -169,11 +211,24 @@ function createRoads(rows, cols, blockSize) {
 }
 
 function createBuilding(data) {
+    // 1. Solid Black Tower
     const geo = new THREE.BoxGeometry(data.width, data.height, data.depth);
-    const mat = new THREE.MeshStandardMaterial({ color: data.color, flatShading: true });
+    const mat = new THREE.MeshStandardMaterial({ 
+        color: 0x020202, 
+        roughness: 0.1, 
+        metalness: 0.9 
+    });
     const building = new THREE.Mesh(geo, mat);
-    
     building.position.set(data.x, data.height / 2, data.z);
+    building.castShadow = true;
+    building.receiveShadow = true;
+
+    // 2. Neon Wireframe Edges (The "Future" look)
+    // We pick a random neon color (Cyan, Magenta, Lime, or Yellow)
+    const neonColors = [0x00ffff, 0xff00ff, 0x00ff00, 0xffff00];
+    const pick = neonColors[Math.floor(Math.random() * neonColors.length)];
+    addNeonEdges(building, pick);
+
     scene.add(building);
     walls.push(building); 
 }
@@ -194,28 +249,23 @@ socket.on('cityMap', (data) => {
 
 socket.on('updateAI', (aiData) => {
     aiData.forEach(ai => {
-        // If this is a new AI car, create it
         if (!aiCarMeshes[ai.id]) {
-            const car = createPolyCar(0x00FF00, true); 
-            // Start at the correct position immediately
+            const car = createPolyCar(0x000000, true); 
             car.position.set(ai.x, 0, ai.z);
             scene.add(car);
             
-            // Store the mesh AND the target coordinates
             aiCarMeshes[ai.id] = { 
                 mesh: car, 
                 targetX: ai.x, 
                 targetZ: ai.z, 
-                targetRot: 0 // Will determine below
+                targetRot: 0 
             };
         }
 
-        // Update the TARGET position, do not move mesh yet (we smooth it in animate)
         const aiObj = aiCarMeshes[ai.id];
         aiObj.targetX = ai.x;
         aiObj.targetZ = ai.z;
         
-        // Determine rotation based on direction
         if (ai.dir === 1) aiObj.targetRot = Math.PI / 2;
         if (ai.dir === -1) aiObj.targetRot = -Math.PI / 2;
         if (ai.dir === 2) aiObj.targetRot = 0;
@@ -224,7 +274,9 @@ socket.on('updateAI', (aiData) => {
 });
 
 socket.on('currentPlayers', (serverPlayers) => {
-    infoDiv.innerText = "WATCH OUT FOR GIANT AI CARS!";
+    if (!gameActive) infoDiv.innerText = "GAME PAUSED - SELECT MODE";
+    else infoDiv.innerText = "AVOID THE NEON GIANTS!";
+    
     Object.keys(serverPlayers).forEach((id) => {
         if (id === socket.id) {
             myId = id;
@@ -239,7 +291,6 @@ socket.on('currentPlayers', (serverPlayers) => {
             opCar.rotation.y = p.rot;
             scene.add(opCar);
             
-            // Store as object for interpolation
             otherPlayers[id] = {
                 mesh: opCar,
                 targetX: p.x,
@@ -266,7 +317,6 @@ socket.on('newPlayer', (data) => {
 
 socket.on('playerMoved', (data) => {
     if (otherPlayers[data.id]) {
-        // Just update the target, don't teleport!
         otherPlayers[data.id].targetX = data.x;
         otherPlayers[data.id].targetZ = data.z;
         otherPlayers[data.id].targetRot = data.rot;
@@ -275,7 +325,7 @@ socket.on('playerMoved', (data) => {
 
 socket.on('playerDisconnected', (id) => {
     if (otherPlayers[id]) {
-        scene.remove(otherPlayers[id].mesh); // Remove the mesh from scene
+        scene.remove(otherPlayers[id].mesh); 
         delete otherPlayers[id];
     }
 });
@@ -297,11 +347,12 @@ window.addEventListener('keyup', (e) => {
     if (e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
 });
 
-// --- Physics Check ---
+// --- Physics Check (IMPROVED HITBOXES) ---
 const tempCarBox = new THREE.Box3();
 const tempObstacleBox = new THREE.Box3();
 
 function checkCollision(x, z) {
+    // Current player box
     tempCarBox.setFromCenterAndSize(
         new THREE.Vector3(x, 1, z),
         new THREE.Vector3(2.2, 2, 4.5) 
@@ -313,38 +364,58 @@ function checkCollision(x, z) {
         if (tempCarBox.intersectsBox(tempObstacleBox)) return true;
     }
 
-    // AI Cars (Access the .mesh property now)
+    // AI Cars (UPDATED: FULL HITBOX)
     for (const id in aiCarMeshes) {
         const aiCar = aiCarMeshes[id].mesh; 
+        
+        // Before: We shrank the box by -1.0
+        // NOW: We take the FULL object bounds. 
         tempObstacleBox.setFromObject(aiCar);
-        tempObstacleBox.expandByScalar(-1.0); 
+        
+        // Optional: A tiny epsilon expansion can ensure very strict collision
+        // tempObstacleBox.expandByScalar(0); 
+        
         if (tempCarBox.intersectsBox(tempObstacleBox)) return true;
     }
 
-    // Other Players (Access the .mesh property now)
+    // Other Players
     for (const id in otherPlayers) {
         const otherCar = otherPlayers[id].mesh;
         tempObstacleBox.setFromObject(otherCar);
-        tempObstacleBox.expandByScalar(-0.5); 
+        // Reduce leniency on other players too
+        tempObstacleBox.expandByScalar(-0.2); 
         if (tempCarBox.intersectsBox(tempObstacleBox)) return true;
     }
 
     return false;
 }
 
+// --- Menu Hook ---
+window.initGameLogic = function(mode) {
+    console.log("Mode Selected:", mode);
+    gameMode = mode;
+    gameActive = true;
+    
+    // Slight tweak based on mode (Client side logic)
+    if(mode === 'drift') {
+        // Reduce grip? (Just visual flavor for now as physics are simple)
+        infoDiv.innerText = "DRIFT MODE ACTIVATED";
+    } else {
+        infoDiv.innerText = "GO! GO! GO!";
+    }
+}
+
 // --- Main Loop ---
 function animate() {
     requestAnimationFrame(animate);
 
-    // 1. Get the time passed since last frame (in seconds)
-    // This ensures consistency across 30fps, 60fps, 144fps
     const delta = clock.getDelta(); 
 
-    if (myCar) {
+    // Only move if game started
+    if (myCar && gameActive) {
         let moveDist = 0;
         let turnAngle = 0;
 
-        // Apply Delta Time to movement
         if (keys.w) moveDist = MOVEMENT_SPEED * delta;
         if (keys.s) moveDist = -MOVEMENT_SPEED * delta;
         if (keys.a) turnAngle = ROTATION_SPEED * delta;
@@ -362,19 +433,18 @@ function animate() {
             myCar.position.x = nextX;
             myCar.position.z = nextZ;
         } else {
-            // "Bounce" logic
+            // Collision Bounce
             myCar.position.x -= dx * 0.5;
             myCar.position.z -= dz * 0.5;
         }
 
-        // Smooth Camera Logic (Time-based Lerp)
+        // Camera Logic
         const camDist = 20; 
         const camHeight = 8;
         
         const targetX = myCar.position.x - Math.sin(myCar.rotation.y) * camDist;
         const targetZ = myCar.position.z - Math.cos(myCar.rotation.y) * camDist;
 
-        // Using delta in lerp makes camera speed consistent
         const smoothing = 5.0 * delta; 
         camera.position.x += (targetX - camera.position.x) * smoothing;
         camera.position.z += (targetZ - camera.position.z) * smoothing;
@@ -388,33 +458,31 @@ function animate() {
                 rot: myCar.rotation.y
             });
         }
+    } else if (myCar && !gameActive) {
+        // Idle camera rotation while in menu
+        camera.position.x = myCar.position.x + Math.sin(clock.getElapsedTime() * 0.5) * 40;
+        camera.position.z = myCar.position.z + Math.cos(clock.getElapsedTime() * 0.5) * 40;
+        camera.position.y = 30;
+        camera.lookAt(myCar.position);
     }
 
-    // --- INTERPOLATION (Smoothing) FOR OTHERS ---
-    
-    // Smooth AI Cars
+    // --- INTERPOLATION ---
     for (const id in aiCarMeshes) {
         const obj = aiCarMeshes[id];
         if (obj.mesh && obj.targetX !== undefined) {
-            // Linearly Interpolate (Lerp) positions
             const lerpSpeed = LERP_FACTOR * delta;
             obj.mesh.position.x += (obj.targetX - obj.mesh.position.x) * lerpSpeed;
             obj.mesh.position.z += (obj.targetZ - obj.mesh.position.z) * lerpSpeed;
-            
-            // For rotation, we can snap or lerp. Snapping is cleaner for grid-AI.
             obj.mesh.rotation.y = obj.targetRot;
         }
     }
 
-    // Smooth Other Players
     for (const id in otherPlayers) {
         const obj = otherPlayers[id];
         if (obj.mesh && obj.targetX !== undefined) {
             const lerpSpeed = LERP_FACTOR * delta;
             obj.mesh.position.x += (obj.targetX - obj.mesh.position.x) * lerpSpeed;
             obj.mesh.position.z += (obj.targetZ - obj.mesh.position.z) * lerpSpeed;
-            
-            // Simple rotation lerp
             obj.mesh.rotation.y += (obj.targetRot - obj.mesh.rotation.y) * lerpSpeed;
         }
     }
